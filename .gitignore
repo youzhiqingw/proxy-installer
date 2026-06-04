@@ -1,0 +1,16 @@
+build/bin/
+build/proxy-installer-setup-*.exe
+frontend/dist/
+frontend/node_modules/
+node_modules/
+tmp/
+*.log
+*.tmp
+*.download
+*.bak
+*.zip
+*.tar.gz
+*.7z
+*.rar
+.DS_Store
+Thumbs.db
