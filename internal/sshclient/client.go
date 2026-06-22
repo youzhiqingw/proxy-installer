@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"proxy-installer/internal/config"
+	apperr "proxy-installer/internal/errors"
 	"proxy-installer/internal/logger"
 )
 
@@ -285,7 +286,7 @@ func (c *Client) AcceptHostKey(host string, port int) error {
 func RunCommand(client *ssh.Client, command string, timeout time.Duration) (config.CommandResult, error) {
 	session, err := client.NewSession()
 	if err != nil {
-		return config.CommandResult{}, err
+		return config.CommandResult{}, apperr.NewSSH("创建 SSH 会话失败", err)
 	}
 	defer session.Close()
 
@@ -303,13 +304,13 @@ func RunCommand(client *ssh.Client, command string, timeout time.Duration) (conf
 			if exitErr, ok := err.(*ssh.ExitError); ok {
 				code = exitErr.ExitStatus()
 			} else {
-				return config.CommandResult{}, err
+				return config.CommandResult{}, apperr.NewSSH("执行远程命令失败", err)
 			}
 		}
 		return config.CommandResult{Code: code, Stdout: stdout.String(), Stderr: stderr.String()}, nil
 	case <-time.After(timeout):
 		_ = session.Signal(ssh.SIGKILL)
-		return config.CommandResult{}, fmt.Errorf("远程命令超时")
+		return config.CommandResult{}, apperr.NewSSH("远程命令超时", nil)
 	}
 }
 
@@ -317,17 +318,17 @@ func RunCommand(client *ssh.Client, command string, timeout time.Duration) (conf
 func RunStreaming(client *ssh.Client, command string, emitFn EmitFn) (int, error) {
 	session, err := client.NewSession()
 	if err != nil {
-		return -1, err
+		return -1, apperr.NewSSH("创建 SSH 会话失败", err)
 	}
 	defer session.Close()
 
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		return -1, err
+		return -1, apperr.NewSSH("获取标准输出管道失败", err)
 	}
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		return -1, err
+		return -1, apperr.NewSSH("获取标准错误管道失败", err)
 	}
 
 	var wg sync.WaitGroup
@@ -336,7 +337,7 @@ func RunStreaming(client *ssh.Client, command string, emitFn EmitFn) (int, error
 	go scanDeployStream(stderr, "log", &wg, emitFn)
 
 	if err := session.Start(command); err != nil {
-		return -1, err
+		return -1, apperr.NewSSH("启动远程命令失败", err)
 	}
 	err = session.Wait()
 	wg.Wait()
@@ -347,7 +348,7 @@ func RunStreaming(client *ssh.Client, command string, emitFn EmitFn) (int, error
 	if exitErr, ok := err.(*ssh.ExitError); ok {
 		return exitErr.ExitStatus(), nil
 	}
-	return -1, err
+	return -1, apperr.NewSSH("等待远程命令完成失败", err)
 }
 
 // ── 工具函数 ──────────────────────────────────────────

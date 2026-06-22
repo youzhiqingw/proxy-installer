@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"proxy-installer/internal/config"
+	apperr "proxy-installer/internal/errors"
 	"proxy-installer/internal/logger"
 	"proxy-installer/internal/singbox"
 	"proxy-installer/internal/sshclient"
@@ -37,14 +38,14 @@ func Deploy(client *ssh.Client, emit sshclient.EmitFn, profile config.SSHProfile
 	script, err := BuildDeployScript(profile, cfg)
 	if err != nil {
 		emit("error", 0, err.Error())
-		return nil, err
+		return nil, apperr.NewDeploy("构建部署脚本失败", err)
 	}
 
 	emit("progress", 2, "连接成功，开始远程部署")
 	code, err := sshclient.RunStreaming(client, "bash -lc "+ShellQuote(script), emit)
 	if err != nil {
 		emit("error", 0, err.Error())
-		return nil, err
+		return nil, apperr.NewSSH("远程执行部署脚本失败", err)
 	}
 	if code == 11 {
 		emit("log", 34, "远端下载 sing-box 失败，尝试由本机上传 Linux 二进制")
@@ -57,7 +58,7 @@ func Deploy(client *ssh.Client, emit sshclient.EmitFn, profile config.SSHProfile
 		code, err = sshclient.RunStreaming(client, "bash -lc "+ShellQuote(script), emit)
 		if err != nil {
 			emit("error", 0, err.Error())
-			return nil, err
+			return nil, apperr.NewSSH("重试部署脚本失败", err)
 		}
 	}
 	if code != 0 {
@@ -352,20 +353,20 @@ emit result 100 "Services are running"
 func BuildDeployScript(profile config.SSHProfile, cfg config.DeployConfig) (string, error) {
 	host := NormalizeHostLiteral(profile.Host)
 	if host == "" {
-		return "", fmt.Errorf("host is empty")
+		return "", apperr.NewValidation("host is empty")
 	}
 	cfg.Selected = FilterSupportedProtocols(cfg.Selected)
 	if len(cfg.Selected) == 0 {
-		return "", fmt.Errorf("请选择至少一个支持协议")
+		return "", apperr.NewValidation("请选择至少一个支持协议")
 	}
 	for _, id := range cfg.Selected {
 		port := PortOrDefault(cfg.Ports, id, ProtocolDefaults()[id])
 		if port < 1 || port > 65535 {
-			return "", fmt.Errorf("%s 内部端口必须在 1-65535 之间", id)
+			return "", apperr.NewValidation(fmt.Sprintf("%s 内部端口必须在 1-65535 之间", id))
 		}
 		publicPort := PublicPortOrDefault(cfg, id, port)
 		if publicPort < 1 || publicPort > 65535 {
-			return "", fmt.Errorf("%s 公网端口必须在 1-65535 之间", id)
+			return "", apperr.NewValidation(fmt.Sprintf("%s 公网端口必须在 1-65535 之间", id))
 		}
 	}
 	nodeName := SafeName(cfg.NodeName, config.DefaultNodeName)
@@ -403,7 +404,7 @@ func BuildDeployScript(profile config.SSHProfile, cfg config.DeployConfig) (stri
 
 	var buf bytes.Buffer
 	if err := deployScriptTpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("渲染部署脚本模板失败: %w", err)
+		return "", apperr.NewDeploy("渲染部署脚本模板失败", err)
 	}
 	return buf.String(), nil
 }
