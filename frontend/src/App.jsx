@@ -3,17 +3,25 @@ import QRCode from 'qrcode';
 import appIcon from './assets/images/app-icon.png';
 import {
   Activity,
+  ArrowUpDown,
+  Building2,
+  CalendarDays,
   CheckCircle2,
   Clipboard,
   Cpu,
+  CreditCard,
+  DollarSign,
+  Edit,
   Fingerprint,
   Gauge,
+  Globe,
   Globe2,
   HardDrive,
   LayoutDashboard,
   Link2,
   ListChecks,
   Mail,
+  Monitor,
   Loader2,
   MemoryStick,
   Percent,
@@ -27,23 +35,28 @@ import {
   ShieldAlert,
   ShieldCheck,
   TerminalSquare,
-  Tv,
   Trash2,
+  Tv,
   Wifi,
   XCircle,
+  X,
   Zap,
 } from 'lucide-react';
 import {
   CheckPorts,
   CleanupSelectedFootprint,
+  DeleteCostVPSInstance,
+  GetCostV2Instances,
   InspectVPS,
+  LinkVPSProfile,
   LoadAppState,
   MeasureLatency,
   RunIPQuality,
   RunNodeSpeedTest,
   RunSpeedTest,
-  ScanFootprint,
   SaveAppState,
+  SaveCostVPSInstance,
+  ScanFootprint,
   StartDeploy,
   TestConnection,
   UninstallStarter,
@@ -54,6 +67,7 @@ import './App.css';
 
 const tabs = [
   { id: 'dashboard', label: '仪表盘', desc: '状态总览', icon: LayoutDashboard },
+  { id: 'cost', label: '成本中心', desc: '厂商与账单', icon: DollarSign },
   { id: 'configs', label: 'VPS 管理', desc: 'SSH 与体检', icon: Server },
   { id: 'deploy', label: '节点部署', desc: '协议与订阅', icon: Rocket },
   { id: 'speed', label: '测速中心', desc: '延迟与出口', icon: Gauge },
@@ -100,6 +114,7 @@ function App() {
   const [deploying, setDeploying] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [stateLoaded, setStateLoaded] = useState(false);
+  const [costInstances, setCostInstances] = useState([]);
   const [progress, setProgress] = useState({ value: 0, status: 'idle', message: '等待操作', logs: [] });
   const [profiles, setProfiles] = useState([]);
   const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '' });
@@ -177,6 +192,13 @@ function App() {
     }, 450);
     return () => window.clearTimeout(timer);
   }, [stateLoaded, profiles, deployConfig, activeClient]);
+
+  useEffect(() => {
+    if (!stateLoaded) return;
+    callBackend(GetCostV2Instances).then((r) => {
+      if (r?.instances) setCostInstances(r.instances);
+    }).catch(() => {});
+  }, [stateLoaded]);
 
   useEffect(() => {
     if (!window.runtime?.EventsOnMultiple) {
@@ -399,6 +421,13 @@ function App() {
               progress={progress}
               speed={speed}
               setActiveTab={setActiveTab}
+            />
+          )}
+          {activeTab === 'cost' && (
+            <CostCenter
+              profiles={profiles}
+              instances={costInstances}
+              setInstances={setCostInstances}
             />
           )}
           {activeTab === 'configs' && (
@@ -1318,8 +1347,13 @@ function Metric({ icon: Icon, label, value }) {
   return <div className="metric"><Icon size={17} /><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function Field({ label, children }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
+function Field({ label, required, children }) {
+  return (
+    <div className="field">
+      <span>{label}{required && <span style={{ color: '#f43f5e', marginLeft: 3 }}>*</span>}</span>
+      {children}
+    </div>
+  );
 }
 
 function Detail({ label, value }) {
@@ -1341,6 +1375,654 @@ function DataTable({ columns, rows, empty }) {
           {row.map((cell, cellIndex) => <span key={`${cell}-${cellIndex}`}>{cell}</span>)}
         </div>
       ))}
+    </div>
+  );
+}
+
+function displayCPU(v) { return `${v} 核心`; }
+function displayMemory(v) { return v < 1 ? `${Math.round(v * 1024)} MB` : `${v.toFixed(1)} GB`; }
+function displayDisk(v) { return v >= 1024 ? `${(v / 1024).toFixed(1)} TB` : `${v} GB`; }
+function displayBandwidth(v) { return v >= 1000 ? `${(v / 1000).toFixed(1)} Gbps` : `${v} Mbps`; }
+function displayTraffic(v) { return v === 0 ? '不限' : v >= 1024 ? `${(v / 1024).toFixed(1)} TB/月` : `${v} GB/月`; }
+function displayCount(v) { return `${v} 个`; }
+function cycleMonths(c) { return { monthly: 1, quarterly: 3, semiannual: 6, annual: 12, lifetime: 0 }[c] || 1; }
+function BillingLabel(c) { return { monthly: '月', quarterly: '季', semiannual: '半年', annual: '年', lifetime: '终身' }[c] || c; }
+function currencySymbol(c) {
+  const sym = { CNY: '¥', USD: '$', EUR: '€', CAD: 'C$', JPY: '¥', GBP: '£', AUD: 'A$', SGD: 'S$', HKD: 'HK$', TWD: 'NT$' };
+  return sym[c] || c;
+}
+function currencyOptions() {
+  return ['CNY', 'USD', 'EUR', 'CAD', 'JPY', 'GBP', 'AUD', 'SGD', 'HKD', 'TWD'];
+}
+
+const CURRENCIES = [
+  { code: 'CNY', symbol: '¥' }, { code: 'USD', symbol: '$' }, { code: 'EUR', symbol: '€' },
+  { code: 'JPY', symbol: '¥' }, { code: 'HKD', symbol: 'HK$' }, { code: 'GBP', symbol: '£' },
+  { code: 'CAD', symbol: 'CA$' }, { code: 'AUD', symbol: 'A$' }, { code: 'SGD', symbol: 'S$' },
+  { code: 'TWD', symbol: 'NT$' },
+];
+
+const OS_PRESETS = [
+  { label: 'Debian 12', value: 'Debian 12' },
+  { label: 'Debian 11', value: 'Debian 11' },
+  { label: 'Ubuntu 24.04', value: 'Ubuntu 24.04' },
+  { label: 'Ubuntu 22.04', value: 'Ubuntu 22.04' },
+  { label: 'Ubuntu 20.04', value: 'Ubuntu 20.04' },
+  { label: 'CentOS 7', value: 'CentOS 7' },
+  { label: 'CentOS Stream', value: 'CentOS Stream' },
+  { label: 'AlmaLinux 9', value: 'AlmaLinux 9' },
+  { label: 'AlmaLinux 8', value: 'AlmaLinux 8' },
+  { label: 'Rocky Linux 9', value: 'Rocky Linux 9' },
+  { label: 'Rocky Linux 8', value: 'Rocky Linux 8' },
+  { label: 'Arch Linux', value: 'Arch Linux' },
+  { label: '其他', value: '', custom: true },
+];
+
+function emptyDraft() {
+  return {
+    id: '',
+    vpsName: '',
+    host: '',
+    cpu: 2,
+    memory_gb: 2,
+    disk_gb: 30,
+    bandwidth_mbps: 20,
+    traffic_gb: 1000,
+    ipv4Count: 1,
+    price: '',
+    currency: 'CNY',
+    billingCycle: 'monthly',
+    purchaseDate: new Date().toISOString().slice(0, 10),
+    nextRenewal: '',
+    manualRenewal: false,
+    providerName: '',
+    providerURL: '',
+    planName: '',
+    os: '',
+    profileId: '',
+    notes: '',
+  };
+}
+
+function calcFrontendRenewal(purchaseDate, billingCycle) {
+  if (billingCycle === 'lifetime') return '';
+  const months = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 }[billingCycle];
+  if (!months) return '';
+  const d = new Date(purchaseDate);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  let next = new Date(d);
+  while (next <= now) {
+    next.setMonth(next.getMonth() + months);
+  }
+  return next.toISOString().slice(0, 10);
+}
+
+// ─── Cost Center v3.0 Helpers & Components ────────────────────────────────────
+
+function getInstanceStatus(inst) {
+  if (inst.billingCycle === 'lifetime') return 'lifetime';
+  if (!inst.nextRenewal) return 'ok';
+  const diffDays = Math.ceil((new Date(inst.nextRenewal) - new Date()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'overdue';
+  if (diffDays <= 7) return 'due-week';
+  if (diffDays <= 30) return 'due-month';
+  return 'ok';
+}
+
+function isExpired(inst) { return getInstanceStatus(inst) === 'overdue'; }
+
+function formatMonthlyCost(monthly) {
+  if (!monthly || Object.keys(monthly).length === 0) return '¥0';
+  return Object.entries(monthly).map(([code, val]) => {
+    const sym = CURRENCIES.find(c => c.code === code)?.symbol || code;
+    return `${sym}${val.toFixed(2)}`;
+  }).join(' / ');
+}
+
+function formatAnnualCost(monthly) {
+  if (!monthly || Object.keys(monthly).length === 0) return '¥0';
+  return Object.entries(monthly).map(([code, val]) => {
+    const sym = CURRENCIES.find(c => c.code === code)?.symbol || code;
+    return `${sym}${(val * 12).toFixed(0)}`;
+  }).join(' / ');
+}
+
+function autoNextRenewal(purchaseDate, billingCycle) {
+  if (!purchaseDate || billingCycle === 'lifetime') return '';
+  const cycleMap = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
+  const months = cycleMap[billingCycle] || 1;
+  const now = new Date();
+  let d = new Date(purchaseDate);
+  while (d <= now) { d = new Date(d.getFullYear(), d.getMonth() + months, d.getDate()); }
+  return d.toISOString().split('T')[0];
+}
+
+function toMonthly(price, billingCycle) {
+  const divisor = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12, lifetime: 0 };
+  const d = divisor[billingCycle] ?? 1;
+  return d === 0 ? 0 : price / d;
+}
+
+function FormSection({ title, collapsible = false, defaultOpen = true, badge, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <div
+        className="form-section-title"
+        style={collapsible ? { cursor: 'pointer', userSelect: 'none' } : {}}
+        onClick={collapsible ? () => setOpen(o => !o) : undefined}
+      >
+        {title}
+        {badge && (
+          <span style={{
+            background: '#dbeafe', color: '#1d4ed8', borderRadius: '999px',
+            fontSize: '11px', padding: '1px 8px', fontWeight: 600,
+            textTransform: 'none', letterSpacing: 0,
+          }}>{badge}</span>
+        )}
+        {collapsible && (
+          <span style={{ marginLeft: 'auto', fontSize: 14, color: '#94a3b8' }}>
+            {open ? '\u2303' : '\u2304'}
+          </span>
+        )}
+      </div>
+      {(!collapsible || open) && (
+        <div className="form-section-body">{children}</div>
+      )}
+    </div>
+  );
+}
+
+function SpecChip({ icon, children }) {
+  return (
+    <span className="spec-chip">
+      {icon && <span className="spec-chip-icon">{icon}</span>}
+      {children}
+    </span>
+  );
+}
+
+function CostStatCard({ icon, className, label, value, sub }) {
+  return (
+    <div className={`cost-stat-card ${className || ''}`}>
+      {icon && <div className="cost-stat-icon">{icon}</div>}
+      <div className="cost-stat-value">{value}</div>
+      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{label}</div>
+      {sub && <div className="cost-stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function ExpiringBanner({ instances }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const expiring = instances.filter(inst => {
+    if (inst.billingCycle === 'lifetime' || !inst.nextRenewal) return false;
+    return Math.ceil((new Date(inst.nextRenewal) - new Date()) / 86400000) <= 30;
+  });
+  if (expiring.length === 0) return null;
+  const overdueCount = expiring.filter(i => new Date(i.nextRenewal) < new Date()).length;
+  const soonCount = expiring.length - overdueCount;
+  const summaryText = [
+    overdueCount > 0 && `${overdueCount} \u53f0\u5df2\u8fc7\u671f`,
+    soonCount > 0 && `${soonCount} \u53f0\u5373\u5c06\u5230\u671f`,
+  ].filter(Boolean).join('\uff0c');
+  const sorted = [...expiring].sort((a, b) => new Date(a.nextRenewal) - new Date(b.nextRenewal));
+  return (
+    <div className="expiry-banner">
+      <div className="expiry-banner-header" onClick={() => setCollapsed(c => !c)} role="button" aria-expanded={!collapsed}>
+        <span>{'\u26a0\ufe0f'} \u7eed\u8d39\u63d0\u9192</span>
+        <span className="expiry-banner-count">{expiring.length}</span>
+        <span className="expiry-banner-summary">{summaryText}</span>
+        <span className="expiry-banner-toggle">{collapsed ? '\u5c55\u5f00 \u2304' : '\u6536\u8d77 \u2303'}</span>
+      </div>
+      {!collapsed && sorted.map(inst => {
+        const diffDays = Math.ceil((new Date(inst.nextRenewal) - new Date()) / 86400000);
+        const isOverdue = diffDays < 0;
+        const statusClass = isOverdue ? 'overdue' : 'due-soon';
+        const statusIcon = isOverdue ? '\ud83d\udd34' : '\ud83d\udfe1';
+        const statusText = isOverdue
+          ? `\u5df2\u8fc7\u671f ${Math.abs(diffDays)} \u5929`
+          : diffDays === 0 ? '\u4eca\u65e5\u5230\u671f' : `${inst.nextRenewal}\uff08${diffDays} \u5929\u540e\uff09`;
+        const currSym = CURRENCIES.find(c => c.code === inst.currency)?.symbol || '';
+        const cycleLabel = { monthly: '\u6708', quarterly: '\u5b63', semiannual: '\u534a\u5e74', annual: '\u5e74' }[inst.billingCycle] || '';
+        return (
+          <div key={inst.id} className="expiry-item">
+            <div className={`expiry-item-dot ${statusClass}`} />
+            <span>{statusIcon}</span>
+            <span className="expiry-item-name">{inst.vpsName}</span>
+            <span className="expiry-item-meta">
+              {inst.providerName ? `${inst.providerName} \u00b7 ` : ''}{statusText}
+            </span>
+            <span className="expiry-item-price">
+              {currSym}{inst.price?.toFixed(2)}/{cycleLabel}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InstanceCard({ inst, onEdit, onDelete }) {
+  const status = getInstanceStatus(inst);
+  const stripeColor = { overdue: '#f43f5e', 'due-week': '#f59e0b', 'due-month': '#f59e0b', lifetime: '#8b5cf6', ok: '#22c55e' }[status];
+  const badge = {
+    overdue: { text: '\u5df2\u8fc7\u671f', cls: 'badge-overdue' },
+    'due-week': { text: '7\u5929\u5185\u5230\u671f', cls: 'badge-due-week' },
+    'due-month': { text: '\u5373\u5c06\u5230\u671f', cls: 'badge-due-month' },
+    lifetime: { text: '\u7ec8\u8eab', cls: 'badge-lifetime' },
+    ok: null,
+  }[status];
+  const currencySymbol = CURRENCIES.find(c => c.code === inst.currency)?.symbol || '';
+  const cycleLabel = { monthly: '\u6708', quarterly: '\u5b63', semiannual: '\u534a\u5e74', annual: '\u5e74', lifetime: '\u4e70\u65ad' }[inst.billingCycle] || '';
+  return (
+    <div className="instance-card">
+      <div className="instance-card-stripe" style={{ background: stripeColor }} />
+      <div className="instance-card-header">
+        <span className="instance-card-name">{inst.vpsName}</span>
+        {badge && <span className={`instance-status-badge ${badge.cls}`}>{badge.text}</span>}
+        <div className="instance-actions">
+          <button className="btn-icon-sm" title="\u7f16\u8f91" onClick={() => onEdit(inst)}><Edit size={13} /></button>
+          <button className="btn-icon-sm danger" title="\u5220\u9664" onClick={() => onDelete(inst.id)}><Trash2 size={13} /></button>
+        </div>
+      </div>
+      {(inst.providerName || inst.planName) && (
+        <div className="instance-card-subtitle">
+          {[inst.providerName, inst.planName].filter(Boolean).join(' \u00b7 ')}
+          {inst.os && <span>\u00b7 {inst.os}</span>}
+        </div>
+      )}
+      <div className="spec-chips-row">
+        {inst.cpu > 0 && <SpecChip icon={<Cpu size={10} />}>{displayCPU(inst.cpu)}</SpecChip>}
+        {inst.memory_gb > 0 && <SpecChip icon={<Server size={10} />}>{displayMemory(inst.memory_gb)}</SpecChip>}
+        {inst.disk_gb > 0 && <SpecChip icon={<HardDrive size={10} />}>{displayDisk(inst.disk_gb)}</SpecChip>}
+        {inst.bandwidth_mbps > 0 && <SpecChip icon={<Wifi size={10} />}>{displayBandwidth(inst.bandwidth_mbps)}</SpecChip>}
+        <SpecChip icon={<ArrowUpDown size={10} />}>{displayTraffic(inst.traffic_gb)}</SpecChip>
+        {inst.ipv4Count > 0 && <SpecChip icon={<Globe size={10} />}>{inst.ipv4Count} IPv4</SpecChip>}
+      </div>
+      <div className="instance-card-footer">
+        <span className="instance-price">
+          {currencySymbol}{inst.price?.toFixed(2)}/{cycleLabel}
+        </span>
+        {inst.nextRenewal && inst.billingCycle !== 'lifetime' && (
+          <span className="instance-dates">
+            \u8d2d\u4e8e {inst.purchaseDate} \u00b7 \u7eed\u8d39 {inst.nextRenewal}
+          </span>
+        )}
+      </div>
+      {inst.notes && (
+        <div className="instance-notes">{'\ud83d\udcdd'} {inst.notes}</div>
+      )}
+    </div>
+  );
+}
+
+function VendorGroup({ vendor, instances, onEdit, onDelete }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const monthlyCost = instances.reduce((acc, inst) => {
+    const monthly = toMonthly(Number(inst.price || 0), inst.billingCycle);
+    acc[inst.currency] = (acc[inst.currency] || 0) + monthly;
+    return acc;
+  }, {});
+  const costStr = Object.entries(monthlyCost).map(([code, val]) => {
+    const sym = CURRENCIES.find(c => c.code === code)?.symbol || '';
+    return `${sym}${val.toFixed(2)}`;
+  }).join(' / ');
+  return (
+    <div className="vendor-group">
+      <div className="vendor-group-head" onClick={() => setCollapsed(c => !c)}>
+        <span>{'\ud83c\udfe2'}</span>
+        <span className="vendor-group-name">{vendor || '\u672a\u5206\u7ec4'}</span>
+        <span className="vendor-group-meta">
+          {instances.length} \u53f0 VPS \u00b7 {costStr}/\u6708
+        </span>
+        <span className="vendor-group-toggle">
+          {collapsed ? '\u2304' : '\u2303'}
+        </span>
+      </div>
+      {!collapsed && (
+        <div className="vendor-group-body">
+          {instances.map(inst => (
+            <InstanceCard key={inst.id} inst={inst} onEdit={onEdit} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Unit conversion helpers for spec inputs
+function getMemDisplay(val, unit) { return unit === 'MB' ? (val || 0) * 1024 : (val || 0); }
+function setMemGB(displayVal, unit) { return unit === 'MB' ? (Number(displayVal) || 0) / 1024 : Number(displayVal) || 0; }
+function getDiskDisplay(val, unit) { return unit === 'TB' ? (val || 0) / 1024 : (val || 0); }
+function setDiskGB(displayVal, unit) { return unit === 'TB' ? (Number(displayVal) || 0) * 1024 : Number(displayVal) || 0; }
+function getBwDisplay(val, unit) { return unit === 'Gbps' ? (val || 0) / 1000 : (val || 0); }
+function setBwMbps(displayVal, unit) { return unit === 'Gbps' ? (Number(displayVal) || 0) * 1000 : Number(displayVal) || 0; }
+function getTrafficDisplay(val, unit) { return unit === 'TB' ? (val || 0) / 1024 : (val || 0); }
+function setTrafficGB(displayVal, unit) { return unit === 'TB' ? (Number(displayVal) || 0) * 1024 : Number(displayVal) || 0; }
+
+function CostCenter({ profiles, instances, setInstances }) {
+  const [draft, setDraft] = useState(() => emptyDraft());
+  const [editingId, setEditingId] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [showProviderSection, setShowProviderSection] = useState(false);
+  const [memUnit, setMemUnit] = useState('GB');
+  const [diskUnit, setDiskUnit] = useState('GB');
+  const [bwUnit, setBwUnit] = useState('Mbps');
+  const [trafficUnit, setTrafficUnit] = useState('GB');
+
+  const providerMap = useMemo(() => {
+    const map = {};
+    for (const inst of instances) {
+      const key = inst.providerName || '未指定厂商';
+      if (!map[key]) map[key] = [];
+      map[key].push(inst);
+    }
+    return map;
+  }, [instances]);
+
+  const providers = Object.keys(providerMap).sort();
+  const providerCount = providers.length;
+
+  const monthlyByCurrency = instances.reduce((acc, p) => {
+    const m = cycleMonths(p.billingCycle);
+    const monthly = m ? Number(p.price || 0) / m : 0;
+    const cur = p.currency || 'CNY';
+    acc[cur] = (acc[cur] || 0) + monthly;
+    return acc;
+  }, {});
+
+  const monthlyLabel = Object.keys(monthlyByCurrency).length
+    ? Object.entries(monthlyByCurrency).map(([c, v]) => `${currencySymbol(c)}${v.toFixed(2)}`).join(' / ')
+    : '--';
+
+  const annualLabel = Object.keys(monthlyByCurrency).length
+    ? `${Object.entries(monthlyByCurrency).map(([c, v]) => `${currencySymbol(c)}${(v * 12).toFixed(2)}`).join(' / ')}`
+    : '--';
+
+  const openForm = (inst) => {
+    if (inst) {
+      setDraft({ ...emptyDraft(), ...inst, price: String(inst.price) });
+      setEditingId(inst.id);
+      setMemUnit(Number(inst.memory_gb) > 0 && Number(inst.memory_gb) < 1 ? 'MB' : 'GB');
+      setDiskUnit(Number(inst.disk_gb) > 500 ? 'TB' : 'GB');
+      setBwUnit(Number(inst.bandwidth_mbps) > 1000 ? 'Gbps' : 'Mbps');
+      setTrafficUnit(Number(inst.traffic_gb) > 500 ? 'TB' : 'GB');
+    } else {
+      setDraft(emptyDraft());
+      setEditingId('');
+      setMemUnit('GB'); setDiskUnit('GB'); setBwUnit('Mbps'); setTrafficUnit('GB');
+    }
+    setShowForm(true);
+    setShowProviderSection(false);
+  };
+
+  const saveInstance = async () => {
+    const payload = {
+      ...draft,
+      cpu: Number(draft.cpu) || 0,
+      memory_gb: Number(draft.memory_gb) || 0,
+      disk_gb: Number(draft.disk_gb) || 0,
+      bandwidth_mbps: Number(draft.bandwidth_mbps) || 0,
+      traffic_gb: Number(draft.traffic_gb) || 0,
+      ipv4Count: Number(draft.ipv4Count) || 0,
+      price: Number(draft.price) || 0,
+    };
+    try {
+      const r = await callBackend(SaveCostVPSInstance, payload);
+      if (r?.ok) {
+        setInstances((prev) => {
+          if (editingId) {
+            return prev.map((v) => v.id === editingId ? { ...payload, id: editingId } : v);
+          }
+          return [...prev, { ...payload, id: r.id }];
+        });
+        setShowForm(false);
+        setEditingId('');
+      }
+    } catch (e) { console.warn(e); }
+  };
+
+  const deleteInstance = async (id) => {
+    try {
+      await callBackend(DeleteCostVPSInstance, id);
+      setInstances((prev) => prev.filter((v) => v.id !== id));
+    } catch (e) { console.warn(e); }
+  };
+
+  return (
+    <div className="cost-layout">
+      {/* v3.0 StatCards */}
+      <div className="stat-cards-grid">
+        <CostStatCard icon={<Building2 size={18} />} className="cost-stat-blue" label="厂商数" value={providerCount} sub={`共 ${instances.length} 台 VPS`} />
+        <CostStatCard icon={<Monitor size={18} />} className="cost-stat-green" label="VPS 数" value={instances.length} sub={`${instances.filter(i => !isExpired(i)).length} 个活跃`} />
+        <CostStatCard icon={<CreditCard size={18} />} className="cost-stat-amber" label="本月支出" value={monthlyLabel} sub="按货币分组" />
+        <CostStatCard icon={<CalendarDays size={18} />} className="cost-stat-rose" label="预计年支出" value={annualLabel} sub={`月均 ${monthlyLabel}`} />
+      </div>
+
+      {/* v3.0 Expiry Banner */}
+      <ExpiringBanner instances={instances} />
+
+      {/* v3.0 Top Action Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, padding: '0 2px' }}>
+        <span style={{ fontSize: 13, color: '#64748b' }}>
+          {showForm
+            ? `正在${editingId ? '编辑' : '添加'}${editingId ? ' ' + instances.find(i => i.id === editingId)?.vpsName : ''}`
+            : `共 ${instances.length} 台 VPS，${providerCount} 家厂商`
+          }
+        </span>
+        <button
+          className={showForm ? '' : 'primary'}
+          onClick={() => {
+            if (showForm) { setShowForm(false); setEditingId(''); setMemUnit('GB'); setDiskUnit('GB'); setBwUnit('Mbps'); setTrafficUnit('GB'); }
+            else { openForm(null); }
+          }}
+        >
+          {showForm ? <><X size={14} /> 取消填写</> : <><Plus size={14} /> 添加 VPS</>}
+        </button>
+      </div>
+
+      {/* v3.0 Vendor Groups */}
+      {providers.map((name) => (
+        <VendorGroup
+          key={name}
+          vendor={name === '未指定厂商' ? '' : name}
+          instances={providerMap[name]}
+          onEdit={openForm}
+          onDelete={deleteInstance}
+        />
+      ))}
+
+      {/* v3.0 Empty State */}
+      {instances.length === 0 && !showForm && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          padding: '56px 24px', gap: '12px',
+          border: '1.5px dashed var(--line)',
+          borderRadius: '12px', color: '#94a3b8',
+        }}>
+          <div style={{ fontSize: 48 }}>{'\ud83d\udcbb'}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#475569' }}>
+            还没有 VPS 记录
+          </div>
+          <div style={{ fontSize: 13, textAlign: 'center', maxWidth: 280 }}>
+            添加你的第一台 VPS，开始追踪成本与续费日期
+          </div>
+          <button className="primary" style={{ marginTop: 8 }} onClick={() => openForm(null)}>
+            <Plus size={15} /> 添加第一台 VPS
+          </button>
+        </div>
+      )}
+
+      {/* v3.0 Add/Edit Form */}
+      {showForm && (
+        <div className="instance-form">
+          <h3 style={{ fontSize: 16, margin: '0 0 4px' }}>{editingId ? '编辑 VPS' : '添加 VPS'}</h3>
+
+          <FormSection title="基本信息">
+            <Field label="VPS 名称" required>
+              <input value={draft.vpsName} onChange={(e) => setDraft({ ...draft, vpsName: e.target.value })} placeholder="如：洛杉矶 CN2 轻量 A 型" />
+            </Field>
+            <Field label="关联 SSH 配置（可选）">
+              <select value={draft.host || draft.profileId} onChange={(e) => setDraft({ ...draft, host: e.target.value, profileId: e.target.value })}>
+                <option value="">-- 不关联 --</option>
+                {profiles.map((p) => <option key={p.id} value={p.id}>{p.name || p.host}</option>)}
+              </select>
+            </Field>
+          </FormSection>
+
+          <FormSection title="规格配置">
+            <div className="spec-grid">
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={1} max={256} value={draft.cpu} onChange={(e) => setDraft({ ...draft, cpu: +e.target.value })} />
+                </div>
+                <label>CPU（核）</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={0.5} step={0.5} value={getMemDisplay(draft.memory_gb, memUnit)}
+                    onChange={(e) => setDraft({ ...draft, memory_gb: setMemGB(e.target.value, memUnit) })} />
+                  <select value={memUnit} onChange={(e) => setMemUnit(e.target.value)}>
+                    <option value="GB">GB</option>
+                    <option value="MB">MB</option>
+                  </select>
+                </div>
+                <label>内存</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={1} value={getDiskDisplay(draft.disk_gb, diskUnit)}
+                    onChange={(e) => setDraft({ ...draft, disk_gb: setDiskGB(e.target.value, diskUnit) })} />
+                  <select value={diskUnit} onChange={(e) => setDiskUnit(e.target.value)}>
+                    <option value="GB">GB</option>
+                    <option value="TB">TB</option>
+                  </select>
+                </div>
+                <label>硬盘</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={1} value={getBwDisplay(draft.bandwidth_mbps, bwUnit)}
+                    onChange={(e) => setDraft({ ...draft, bandwidth_mbps: setBwMbps(e.target.value, bwUnit) })} />
+                  <select value={bwUnit} onChange={(e) => setBwUnit(e.target.value)}>
+                    <option value="Mbps">Mbps</option>
+                    <option value="Gbps">Gbps</option>
+                  </select>
+                </div>
+                <label>带宽</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={0} value={getTrafficDisplay(draft.traffic_gb, trafficUnit)}
+                    onChange={(e) => setDraft({ ...draft, traffic_gb: setTrafficGB(e.target.value, trafficUnit) })} />
+                  <select value={trafficUnit} onChange={(e) => setTrafficUnit(e.target.value)}>
+                    <option value="GB">GB</option>
+                    <option value="TB">TB</option>
+                  </select>
+                </div>
+                <label>流量（0=不限）</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={0} max={16} value={draft.ipv4Count}
+                    onChange={(e) => setDraft({ ...draft, ipv4Count: +e.target.value })} />
+                </div>
+                <label>IPv4 数量</label>
+              </div>
+            </div>
+          </FormSection>
+
+          <FormSection title="计费信息">
+            <Field label="实付金额" required>
+              <div className="price-row">
+                <div className="price-input-wrap">
+                  <input className="price-amount-input" type="number" min={0} step={0.01} placeholder="0.00"
+                    value={draft.price || ''} onChange={(e) => setDraft({ ...draft, price: parseFloat(e.target.value) || 0 })} />
+                  <select className="price-currency-select" value={draft.currency}
+                    onChange={(e) => setDraft({ ...draft, currency: e.target.value })} title="选择货币">
+                    {CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
+                  </select>
+                </div>
+                <select className="cycle-select" value={draft.billingCycle}
+                  onChange={(e) => {
+                    const bc = e.target.value;
+                    setDraft({ ...draft, billingCycle: bc, nextRenewal: draft.manualRenewal ? draft.nextRenewal : autoNextRenewal(draft.purchaseDate, bc) });
+                  }}>
+                  <option value="monthly">月付</option>
+                  <option value="quarterly">季付</option>
+                  <option value="semiannual">半年付</option>
+                  <option value="annual">年付</option>
+                  <option value="lifetime">终身买断</option>
+                </select>
+              </div>
+            </Field>
+          </FormSection>
+
+          <FormSection title="时间信息">
+            <div className="date-group" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="购买日期" required>
+                <input type="date" value={draft.purchaseDate} onChange={(e) => {
+                  const pd = e.target.value;
+                  const nr = draft.manualRenewal ? draft.nextRenewal : autoNextRenewal(pd, draft.billingCycle);
+                  setDraft({ ...draft, purchaseDate: pd, nextRenewal: nr });
+                }} />
+              </Field>
+              <div>
+                <div className="date-field-label-row">
+                  <label style={{ fontSize: 12, color: '#64748b' }}>续费日期</label>
+                  <div className="renewal-mode-switch">
+                    <button className={`renewal-mode-btn ${!draft.manualRenewal ? 'active' : ''}`} onClick={() => {
+                      setDraft({ ...draft, manualRenewal: false, nextRenewal: autoNextRenewal(draft.purchaseDate, draft.billingCycle) });
+                    }}>{'\ud83d\udd04'} 自动</button>
+                    <button className={`renewal-mode-btn ${draft.manualRenewal ? 'active' : ''}`} onClick={() => {
+                      setDraft({ ...draft, manualRenewal: true });
+                    }}>{'\u270f\ufe0f'} 手动</button>
+                  </div>
+                </div>
+                <input type="date" className={!draft.manualRenewal ? 'date-input-readonly' : ''}
+                  value={draft.nextRenewal} readOnly={!draft.manualRenewal}
+                  onChange={(e) => draft.manualRenewal && setDraft({ ...draft, nextRenewal: e.target.value })} />
+              </div>
+            </div>
+          </FormSection>
+
+          <FormSection title="服务商信息（可选）" collapsible defaultOpen={showProviderSection} badge={draft.providerName || undefined}>
+            <div className="provider-grid">
+              <Field label="厂商名称">
+                <input value={draft.providerName} onChange={(e) => setDraft({ ...draft, providerName: e.target.value })} placeholder="如：Vultr、RackNerd" />
+              </Field>
+              <Field label="官网 URL">
+                <input value={draft.providerURL} onChange={(e) => setDraft({ ...draft, providerURL: e.target.value })} placeholder="https://" />
+              </Field>
+              <Field label="套餐/计划名称">
+                <input value={draft.planName} onChange={(e) => setDraft({ ...draft, planName: e.target.value })} placeholder="如：Lite-One" />
+              </Field>
+            </div>
+          </FormSection>
+
+          <FormSection title="系统与备注">
+            <Field label="操作系统">
+              <select value={OS_PRESETS.find((o) => o.value === draft.os) ? draft.os : ''} onChange={(e) => setDraft({ ...draft, os: e.target.value })}>
+                <option value="">-- 选择 --</option>
+                {OS_PRESETS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {!OS_PRESETS.find((o) => o.value === draft.os) && draft.os && (
+                <input value={draft.os} onChange={(e) => setDraft({ ...draft, os: e.target.value })} placeholder="自定义系统" className="custom-os-input" />
+              )}
+            </Field>
+            <Field label="备注">
+              <textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="线路优化、DDoS 防护、备份策略等" rows={3} />
+            </Field>
+          </FormSection>
+
+          <div className="form-actions">
+            <button onClick={() => { setShowForm(false); setEditingId(''); setMemUnit('GB'); setDiskUnit('GB'); setBwUnit('Mbps'); setTrafficUnit('GB'); }}>取消</button>
+            <button className="primary" onClick={saveInstance} disabled={!draft.vpsName.trim()}><Plus size={14} /> {editingId ? '保存修改' : '保存'}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

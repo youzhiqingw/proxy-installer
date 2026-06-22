@@ -35,7 +35,7 @@ Unicode true
 !define INFO_PROJECTNAME "proxy-installer"
 !define INFO_COMPANYNAME "FengZi"
 !define INFO_PRODUCTNAME "Proxy Installer"
-!define INFO_PRODUCTVERSION "1.0.0"
+!define INFO_PRODUCTVERSION "1.1.0"
 !define INFO_COPYRIGHT "Copyright 2026 FengZi"
 !define PRODUCT_EXECUTABLE "proxy-installer.exe"
 !define UNINST_KEY_NAME "ProxyInstaller"

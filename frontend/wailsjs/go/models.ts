@@ -38,6 +38,7 @@ export namespace main {
 	    username: string;
 	    port: number;
 	    password: string;
+	    password_encrypted?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SSHProfile(source);
@@ -52,6 +53,7 @@ export namespace main {
 	        this.username = source["username"];
 	        this.port = source["port"];
 	        this.password = source["password"];
+	        this.password_encrypted = source["password_encrypted"];
 	    }
 	}
 	export class AppState {
@@ -93,6 +95,59 @@ export namespace main {
 		}
 	}
 	
+	
+	export class VPSInstance {
+	    id: string;
+	    vpsName: string;
+	    host?: string;
+	    cpu: number;
+	    memory_gb: number;
+	    disk_gb: number;
+	    bandwidth_mbps: number;
+	    traffic_gb: number;
+	    ipv4Count: number;
+	    price: number;
+	    currency: string;
+	    billingCycle: string;
+	    purchaseDate: string;
+	    nextRenewal: string;
+	    manualRenewal: boolean;
+	    providerName?: string;
+	    providerURL?: string;
+	    planName?: string;
+	    os?: string;
+	    profileId?: string;
+	    notes?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VPSInstance(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.vpsName = source["vpsName"];
+	        this.host = source["host"];
+	        this.cpu = source["cpu"];
+	        this.memory_gb = source["memory_gb"];
+	        this.disk_gb = source["disk_gb"];
+	        this.bandwidth_mbps = source["bandwidth_mbps"];
+	        this.traffic_gb = source["traffic_gb"];
+	        this.ipv4Count = source["ipv4Count"];
+	        this.price = source["price"];
+	        this.currency = source["currency"];
+	        this.billingCycle = source["billingCycle"];
+	        this.purchaseDate = source["purchaseDate"];
+	        this.nextRenewal = source["nextRenewal"];
+	        this.manualRenewal = source["manualRenewal"];
+	        this.providerName = source["providerName"];
+	        this.providerURL = source["providerURL"];
+	        this.planName = source["planName"];
+	        this.os = source["os"];
+	        this.profileId = source["profileId"];
+	        this.notes = source["notes"];
+	    }
+	}
 
 }
 

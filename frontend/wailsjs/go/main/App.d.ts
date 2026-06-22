@@ -6,7 +6,15 @@ export function CheckPorts(arg1:main.SSHProfile,arg2:Array<number>):Promise<Reco
 
 export function CleanupSelectedFootprint(arg1:main.SSHProfile,arg2:Array<string>,arg3:boolean):Promise<Record<string, any>>;
 
+export function DeleteCostVPSInstance(arg1:string):Promise<Record<string, any>>;
+
+export function GetCostV2Instances():Promise<Record<string, any>>;
+
+export function GetCostV2Summary():Promise<Record<string, any>>;
+
 export function InspectVPS(arg1:main.SSHProfile):Promise<Record<string, any>>;
+
+export function LinkVPSProfile(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function LoadAppState():Promise<Record<string, any>>;
 
@@ -19,6 +27,8 @@ export function RunNodeSpeedTest(arg1:main.SSHProfile,arg2:main.DeployConfig):Pr
 export function RunSpeedTest(arg1:main.SSHProfile):Promise<Record<string, any>>;
 
 export function SaveAppState(arg1:main.AppState):Promise<Record<string, any>>;
+
+export function SaveCostVPSInstance(arg1:main.VPSInstance):Promise<Record<string, any>>;
 
 export function ScanFootprint(arg1:main.SSHProfile):Promise<Record<string, any>>;
 

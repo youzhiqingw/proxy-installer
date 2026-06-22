@@ -25,8 +25,8 @@ if ($SingBoxPath -and (Test-Path -LiteralPath $SingBoxPath)) {
   Write-Warning "sing-box.exe not found; installer will rely on auto-download for node speed testing."
 }
 
-New-Item -ItemType Directory -Force "tmp" | Out-Null
-$webviewSetup = "tmp\MicrosoftEdgeWebview2Setup.exe"
+New-Item -ItemType Directory -Force "build\windows\installer\tmp" | Out-Null
+$webviewSetup = "build\windows\installer\tmp\MicrosoftEdgeWebview2Setup.exe"
 if (-not (Test-Path -LiteralPath $webviewSetup)) {
   Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $webviewSetup
 }

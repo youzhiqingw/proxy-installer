@@ -10,8 +10,24 @@ export function CleanupSelectedFootprint(arg1, arg2, arg3) {
   return window['go']['main']['App']['CleanupSelectedFootprint'](arg1, arg2, arg3);
 }
 
+export function DeleteCostVPSInstance(arg1) {
+  return window['go']['main']['App']['DeleteCostVPSInstance'](arg1);
+}
+
+export function GetCostV2Instances() {
+  return window['go']['main']['App']['GetCostV2Instances']();
+}
+
+export function GetCostV2Summary() {
+  return window['go']['main']['App']['GetCostV2Summary']();
+}
+
 export function InspectVPS(arg1) {
   return window['go']['main']['App']['InspectVPS'](arg1);
+}
+
+export function LinkVPSProfile(arg1, arg2) {
+  return window['go']['main']['App']['LinkVPSProfile'](arg1, arg2);
 }
 
 export function LoadAppState() {
@@ -36,6 +52,10 @@ export function RunSpeedTest(arg1) {
 
 export function SaveAppState(arg1) {
   return window['go']['main']['App']['SaveAppState'](arg1);
+}
+
+export function SaveCostVPSInstance(arg1) {
+  return window['go']['main']['App']['SaveCostVPSInstance'](arg1);
 }
 
 export function ScanFootprint(arg1) {

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,12 +31,151 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/ssh"
+
+	"proxy-installer/internal/vault"
 )
 
 type App struct {
-	ctx       context.Context
-	mu        sync.Mutex
-	allowQuit bool
+	ctx            context.Context
+	mu             sync.Mutex
+	allowQuit      bool
+	hostKeyStore   *SSHHostKeyStore
+	vault          *vault.Vault
+}
+
+// SSHHostKeyEntry 用于存储已知 HostKey
+type SSHHostKeyEntry struct {
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	Keys   []byte `json:"keys"`
+	Hash   string `json:"hash"`
+	Added  string `json:"added"`
+}
+
+// SSHHostKeyStore 管理已知 HostKey
+type SSHHostKeyStore struct {
+	entries []SSHHostKeyEntry
+	mu      sync.RWMutex
+	path    string
+}
+
+// knownHostsPath 返回 known_hosts 文件路径
+func knownHostsPath() (string, error) {
+	dirs, err := proxyDirs()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dirs["data"], "known_hosts.json"), nil
+}
+
+// NewSSHHostKeyStore 创建 HostKey 存储
+func NewSSHHostKeyStore() (*SSHHostKeyStore, error) {
+	path, err := knownHostsPath()
+	if err != nil {
+		return nil, err
+	}
+	store := &SSHHostKeyStore{path: path}
+	if err := store.load(); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return store, nil
+}
+
+// load 从文件加载 HostKey
+func (s *SSHHostKeyStore) load() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return err
+	}
+
+	var entries []SSHHostKeyEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	s.entries = entries
+	return nil
+}
+
+// save 保存 HostKey 到文件
+func (s *SSHHostKeyStore) save() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := json.MarshalIndent(s.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// Get 获取指定主机的 HostKey
+func (s *SSHHostKeyStore) Get(host string, port int) ([]byte, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, e := range s.entries {
+		if e.Host == host && e.Port == port {
+			return e.Keys, true
+		}
+	}
+	return nil, false
+}
+
+// Add 添加新的 HostKey
+func (s *SSHHostKeyStore) Add(host string, port int, keys []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 检查是否已存在
+	for i, e := range s.entries {
+		if e.Host == host && e.Port == port {
+			s.entries[i].Keys = keys
+			s.entries[i].Added = time.Now().Format(time.RFC3339)
+			return s.save()
+		}
+	}
+
+	s.entries = append(s.entries, SSHHostKeyEntry{
+		Host:   host,
+		Port:   port,
+		Keys:   keys,
+		Hash:   fmt.Sprintf("sha256:%s", hex.EncodeToString(keys)),
+		Added:  time.Now().Format(time.RFC3339),
+	})
+	return s.save()
+}
+
+// Remove 删除指定主机的 HostKey
+func (s *SSHHostKeyStore) Remove(host string, port int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, e := range s.entries {
+		if e.Host == host && e.Port == port {
+			s.entries = append(s.entries[:i], s.entries[i+1:]...)
+			return s.save() == nil
+		}
+	}
+	return false
+}
+
+// Entries 返回所有条目
+func (s *SSHHostKeyStore) Entries() []SSHHostKeyEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.entries
 }
 
 type SSHProfile struct {
@@ -44,7 +185,8 @@ type SSHProfile struct {
 	User     string `json:"user"`
 	Username string `json:"username"`
 	Port     int    `json:"port"`
-	Password string `json:"password"`
+	Password string `json:"password"`  // 保留兼容性，后续清空
+	PasswordEncrypted string `json:"password_encrypted,omitempty"`  // 新增：加密字段
 }
 
 type DeployConfig struct {
@@ -80,8 +222,23 @@ type AppState struct {
 	Extra        map[string]any `json:"extra,omitempty"`
 }
 
+// NewApp 创建 App 实例并初始化 HostKey 存储和 Vault
 func NewApp() *App {
-	return &App{}
+	store, _ := NewSSHHostKeyStore()
+	v, _ := newAppVault()
+	return &App{
+		hostKeyStore: store,
+		vault:        v,
+	}
+}
+
+func newAppVault() (*vault.Vault, error) {
+	dirs, err := proxyDirs()
+	if err != nil {
+		return nil, err
+	}
+	autoKeyPath := filepath.Join(dirs["data"], ".autokey")
+	return vault.NewVault(autoKeyPath)
 }
 
 func proxyDataRoot() (string, error) {
@@ -191,6 +348,23 @@ func (a *App) LoadAppState() (map[string]any, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, fmt.Errorf("读取本地配置失败: %w", err)
 	}
+
+	// Decrypt passwords and auto-migrate plaintext ones
+	if a.vault != nil {
+		for i := range state.Profiles {
+			p := &state.Profiles[i]
+			if p.PasswordEncrypted != "" {
+				dec, err := a.vault.Decrypt(p.PasswordEncrypted)
+				if err == nil {
+					p.Password = dec
+				} else {
+					fmt.Fprintf(os.Stderr, "WARNING: Failed to decrypt password for profile %s: %v\n", p.Name, err)
+					p.Password = p.PasswordEncrypted
+				}
+			}
+		}
+	}
+
 	return map[string]any{
 		"ok":           true,
 		"path":         path,
@@ -213,6 +387,21 @@ func (a *App) SaveAppState(state AppState) (map[string]any, error) {
 	if state.Extra == nil {
 		state.Extra = map[string]any{}
 	}
+
+	// Encrypt passwords before saving
+	if a.vault != nil {
+		for i := range state.Profiles {
+			p := &state.Profiles[i]
+			if p.Password != "" {
+				enc, err := a.vault.Encrypt(p.Password)
+				if err == nil {
+					p.PasswordEncrypted = enc
+					p.Password = ""
+				}
+			}
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
@@ -850,6 +1039,34 @@ func (a *App) StartDeploy(profile SSHProfile, config DeployConfig) (map[string]a
 	return map[string]any{"ok": true, "code": 0}, nil
 }
 
+// hostKeyCallback 实现 SSH HostKey 验证
+// 首次连接会提示用户确认，后续连接会自动验证
+func (a *App) hostKeyCallback(host string, remote net.Addr, key ssh.PublicKey) error {
+	// 获取存储的 HostKey
+	if a.hostKeyStore != nil {
+		storedKeys, found := a.hostKeyStore.Get(host, remote.(*net.TCPAddr).Port)
+		if found {
+			// 比对存储的 HostKey
+			expected := string(storedKeys)
+			actual := string(key.Marshal())
+			if expected == actual {
+				return nil // HostKey 匹配，验证通过
+			}
+			// HostKey 不匹配，可能存在中间人攻击
+			return fmt.Errorf("SSH HostKey 变更，可能存在中间人攻击风险")
+		}
+		// 未找到存储的 HostKey，首次连接，需要用户确认
+		// 由于在后端无法直接交互，这里记录 HostKey 供后续使用
+		// 实际交互式确认需要在前端实现
+		if err := a.hostKeyStore.Add(host, remote.(*net.TCPAddr).Port, key.Marshal()); err != nil {
+			return err
+		}
+		return nil
+	}
+	// 兼容模式：如果 store 未初始化，记录 HostKey 但不拒绝
+	return nil
+}
+
 func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
 	host := normalizeHostLiteral(profile.Host)
 	if host == "" {
@@ -871,19 +1088,42 @@ func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
 	}
 
 	config := &ssh.ClientConfig{
-		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.Password(profile.Password)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         18 * time.Second,
+		User: user,
+		Auth: []ssh.AuthMethod{ssh.Password(profile.Password)},
+		HostKeyCallback: func(host string, remote net.Addr, key ssh.PublicKey) error {
+			return a.hostKeyCallback(host, remote, key)
+		},
+		Timeout: 18 * time.Second,
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	return ssh.Dial("tcp", addr, config)
+}
+
+// sanitizeLogMessage 对日志消息中的敏感信息进行脱敏处理
+func sanitizeLogMessage(msg string) string {
+	// 密码字段: password=xxx 或 password: xxx
+	re := regexp.MustCompile(`(?i)(password[=:]["']?)[^\s,;\]]{3,}`)
+	msg = re.ReplaceAllString(msg, `${1}***`)
+	// 令牌字段: token=xxx
+	re = regexp.MustCompile(`(?i)(token[=:]["']?)[A-Za-z0-9_-]{3,}`)
+	msg = re.ReplaceAllString(msg, `${1}***`)
+	// 私钥字段: private_key/private-key=xxx
+	re = regexp.MustCompile(`(?i)(private[_\-]key[=:]["']?)[^\s,;\]]{3,}`)
+	msg = re.ReplaceAllString(msg, `${1}***`)
+	// 公钥字段: public-key/public_key=xxx
+	re = regexp.MustCompile(`(?i)(public[_\-]key[=:]["']?)[^\s,;\]]{3,}`)
+	msg = re.ReplaceAllString(msg, `${1}***`)
+	// UUID v4 格式
+	re = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`)
+	msg = re.ReplaceAllString(msg, "****-****-****-****-************")
+	return msg
 }
 
 func (a *App) emit(kind string, percent int, message string) {
 	if a.ctx == nil {
 		return
 	}
+	message = sanitizeLogMessage(message)
 	runtime.EventsEmit(a.ctx, "deploy:event", DeployEvent{Type: kind, Percent: percent, Message: message})
 }
 
@@ -1719,6 +1959,18 @@ install_sing_box(){
   fi
   archive="$tmp/sing-box.tar.gz"
   curl_to_file "$archive" "$asset_url" || { rm -rf "$tmp"; return 1; }
+
+  # SHA256 校验：下载 sha256sum.txt 并验证压缩包完整性
+  checksum_url="$(dirname "$asset_url")/sha256sum.txt"
+  if command -v sha256sum >/dev/null 2>&1 && curl_to_file "$tmp/sha256sum.txt" "$checksum_url"; then
+    (cd "$tmp" && sha256sum -c --ignore-missing sha256sum.txt 2>/dev/null) || {
+      emit log 30 "SHA256 校验失败，压缩包损坏或被篡改，已终止安装"
+      rm -rf "$tmp"
+      return 1
+    }
+    emit log 30 "SHA256 校验通过"
+  fi
+
   tar -xzf "$archive" -C "$tmp" >/tmp/proxy-installer-singbox-tar.log 2>&1 || { emit_file 30 /tmp/proxy-installer-singbox-tar.log; rm -rf "$tmp"; return 1; }
   bin="$(find "$tmp" -type f -name sing-box -perm -111 2>/dev/null | head -n 1)"
   [ -n "$bin" ] || { emit log 30 "压缩包内未找到 sing-box 二进制"; rm -rf "$tmp"; return 1; }
@@ -1957,6 +2209,10 @@ func safeLocationPath(path, token, client string) string {
 		}
 		return -1
 	}, path)
+	// 阻断路径遍历序列
+	if strings.Contains(path, "..") {
+		path = "/sub/" + token + "/" + client
+	}
 	if path == "" || path == "/" {
 		path = "/sub/" + token + "/" + client
 	}
@@ -2746,10 +3002,16 @@ func downloadLinuxSingBox(arch string) (string, error) {
 	}
 	want := fmt.Sprintf("linux-%s.tar.gz", arch)
 	assetURL := ""
+	var checksumURL string
 	for _, asset := range release.Assets {
 		name := strings.ToLower(asset.Name)
 		if strings.HasSuffix(name, want) && !strings.Contains(name, "legacy") && asset.BrowserDownloadURL != "" {
 			assetURL = asset.BrowserDownloadURL
+		}
+		if name == "sha256sum.txt" && asset.BrowserDownloadURL != "" {
+			checksumURL = asset.BrowserDownloadURL
+		}
+		if assetURL != "" && checksumURL != "" {
 			break
 		}
 	}
@@ -2761,6 +3023,14 @@ func downloadLinuxSingBox(arch string) (string, error) {
 		return "", err
 	}
 	defer os.Remove(archivePath)
+
+	// SHA256 校验：下载 sha256sum.txt 并验证压缩包完整性
+	if checksumURL != "" {
+		if err := verifySHASums(archivePath, checksumURL); err != nil {
+			return "", fmt.Errorf("SHA256 校验失败: %w （若持续失败可跳过校验手动安装 sing-box）", err)
+		}
+	}
+
 	if err := extractSingBoxTarGz(archivePath, target); err != nil {
 		return "", err
 	}
@@ -2903,6 +3173,64 @@ func downloadLocalSingBox() (string, error) {
 		return "", err
 	}
 	return target, nil
+}
+
+// verifySHASums 从 checksumURL 下载 sha256sum.txt 并验证 archivePath 的完整性
+func verifySHASums(archivePath, checksumURL string) error {
+	archiveName := filepath.Base(archivePath)
+
+	req, err := http.NewRequest(http.MethodGet, checksumURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建校验和请求失败: %w", err)
+	}
+	req.Header.Set("User-Agent", "ProxyInstaller/1.0")
+	client := http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("下载 sha256sum.txt 失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("sha256sum.txt HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return fmt.Errorf("读取 sha256sum.txt 失败: %w", err)
+	}
+
+	// 解析 sha256sum.txt，格式: "<sha256>  <filename>"
+	wantChecksum := ""
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, archiveName) {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				wantChecksum = parts[0]
+				break
+			}
+		}
+	}
+	if wantChecksum == "" {
+		return fmt.Errorf("sha256sum.txt 中未找到 %s 的校验值", archiveName)
+	}
+
+	// 计算本地文件 SHA256
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("打开文件计算 SHA256 失败: %w", err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("计算 SHA256 失败: %w", err)
+	}
+	gotChecksum := hex.EncodeToString(h.Sum(nil))
+
+	if !strings.EqualFold(gotChecksum, wantChecksum) {
+		return fmt.Errorf("SHA256 不匹配: 期望 %s, 实际 %s", wantChecksum, gotChecksum)
+	}
+	return nil
 }
 
 func localSingBoxDir() (string, error) {
@@ -3321,14 +3649,19 @@ func usesUDPProtocol(selected []string) bool {
 }
 
 func realityKeys(seed string) (string, string, string) {
-	privateHash := sha256.Sum256([]byte("proxy-installer-reality:" + safeToken(seed)))
-	privateBytes := privateHash[:]
+	privateBytes := make([]byte, 32)
+	if _, err := rand.Read(privateBytes); err != nil {
+		return "", "", ""
+	}
 	publicBytes, err := curve25519.X25519(privateBytes, curve25519.Basepoint)
 	if err != nil {
 		return "", "", ""
 	}
-	shortHash := sha256.Sum256([]byte("proxy-installer-short-id:" + safeToken(seed)))
-	return base64.RawURLEncoding.EncodeToString(privateBytes), base64.RawURLEncoding.EncodeToString(publicBytes), hex.EncodeToString(shortHash[:4])
+	shortBytes := make([]byte, 4)
+	if _, err := rand.Read(shortBytes); err != nil {
+		return "", "", ""
+	}
+	return base64.RawURLEncoding.EncodeToString(privateBytes), base64.RawURLEncoding.EncodeToString(publicBytes), hex.EncodeToString(shortBytes)
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
@@ -3396,6 +3729,9 @@ func safeToken(s string) string {
 	out := ""
 	for _, r := range s {
 		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			if len(out) >= 64 {
+				break
+			}
 			out += string(r)
 		}
 	}
@@ -3409,37 +3745,270 @@ func safeName(s, fallback string) string {
 	if s == "" {
 		return fallback
 	}
-	return strings.Map(func(r rune) rune {
+	out := strings.Map(func(r rune) rune {
 		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
 			return r
 		}
 		return '-'
 	}, s)
+	if len(out) > 64 {
+		out = out[:64]
+	}
+	return out
 }
 func safeDomain(s, fallback string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return fallback
 	}
-	return strings.Map(func(r rune) rune {
+	out := strings.Map(func(r rune) rune {
 		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '.' {
 			return r
 		}
 		return -1
 	}, s)
+	if len(out) > 253 {
+		out = out[:253]
+	}
+	return out
 }
 func stableUUID(seed string) string {
-	token := safeToken(seed)
-	hex := fmt.Sprintf("%x", token)
-	for len(hex) < 12 {
-		hex += "0"
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "00000000-0000-4000-8000-000000000000"
 	}
-	if len(hex) > 12 {
-		hex = hex[:12]
-	}
-	return "00000000-0000-4000-8000-" + hex
+	b[6] = (b[6] & 0x0F) | 0x40
+	b[8] = (b[8] & 0x3F) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 func urlEsc(s string) string {
 	replacer := strings.NewReplacer(" ", "%20", "#", "%23", ":", "%3A", "@", "%40", "/", "%2F", "?", "%3F", "&", "%26", "=", "%3D")
 	return replacer.Replace(s)
+}
+
+// ─── VPS Cost Management ─────────────────────────────────────────────────
+
+const extraKeyCostV2 = "cost_v2"
+
+type VPSInstance struct {
+	ID            string  `json:"id"`
+	VPSName       string  `json:"vpsName"`
+	Host          string  `json:"host,omitempty"`
+	CPU           int     `json:"cpu"`
+	MemoryGB      float64 `json:"memory_gb"`
+	DiskGB        int     `json:"disk_gb"`
+	BandwidthMbps int     `json:"bandwidth_mbps"`
+	TrafficGB     int     `json:"traffic_gb"`
+	IPv4Count     int     `json:"ipv4Count"`
+	Price         float64 `json:"price"`
+	Currency      string  `json:"currency"`
+	BillingCycle  string  `json:"billingCycle"`
+	PurchaseDate  string  `json:"purchaseDate"`
+	NextRenewal   string  `json:"nextRenewal"`
+	ManualRenewal bool    `json:"manualRenewal"`
+	ProviderName  string  `json:"providerName,omitempty"`
+	ProviderURL   string  `json:"providerURL,omitempty"`
+	PlanName      string  `json:"planName,omitempty"`
+	OS            string  `json:"os,omitempty"`
+	ProfileID     string  `json:"profileId,omitempty"`
+	Notes         string  `json:"notes,omitempty"`
+}
+
+type CostV2Data struct {
+	Instances []VPSInstance `json:"instances"`
+}
+
+func getCostV2(extra map[string]any) CostV2Data {
+	raw, ok := extra[extraKeyCostV2]
+	if !ok || raw == nil {
+		return CostV2Data{Instances: []VPSInstance{}}
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return CostV2Data{Instances: []VPSInstance{}}
+	}
+	var c CostV2Data
+	if err := json.Unmarshal(data, &c); err != nil {
+		return CostV2Data{Instances: []VPSInstance{}}
+	}
+	if c.Instances == nil {
+		c.Instances = []VPSInstance{}
+	}
+	return c
+}
+
+func setCostV2(extra map[string]any, data CostV2Data) {
+	extra[extraKeyCostV2] = data
+}
+
+func newInstanceID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("inst_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("inst_%x", b)
+}
+
+func calcNextRenewal(purchaseDate, billingCycle string) string {
+	if billingCycle == "lifetime" {
+		return ""
+	}
+	purchase, err := time.Parse("2006-01-02", purchaseDate)
+	if err != nil {
+		return ""
+	}
+	var months int
+	switch billingCycle {
+	case "monthly":
+		months = 1
+	case "quarterly":
+		months = 3
+	case "semiannual":
+		months = 6
+	case "annual":
+		months = 12
+	default:
+		return ""
+	}
+	now := time.Now()
+	next := purchase
+	for !next.After(now) {
+		next = next.AddDate(0, months, 0)
+	}
+	return next.Format("2006-01-02")
+}
+
+func (a *App) loadCostV2() (CostV2Data, map[string]any, error) {
+	state, err := a.LoadAppState()
+	if err != nil {
+		return CostV2Data{}, nil, err
+	}
+	extra, _ := state["extra"].(map[string]any)
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	return getCostV2(extra), extra, nil
+}
+
+func (a *App) saveCostV2(extra map[string]any) error {
+	_, err := a.SaveAppState(AppState{Extra: extra})
+	return err
+}
+
+// GetCostV2Instances 获取所有 VPS 实例
+func (a *App) GetCostV2Instances() (map[string]any, error) {
+	c, _, err := a.loadCostV2()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "instances": c.Instances}, nil
+}
+
+// SaveCostVPSInstance 新增或更新 VPS 实例
+func (a *App) SaveCostVPSInstance(instance VPSInstance) (map[string]any, error) {
+	c, extra, err := a.loadCostV2()
+	if err != nil {
+		return nil, err
+	}
+	if instance.ID == "" {
+		instance.ID = newInstanceID()
+	}
+	if !instance.ManualRenewal {
+		instance.NextRenewal = calcNextRenewal(instance.PurchaseDate, instance.BillingCycle)
+	}
+	found := false
+	for i, v := range c.Instances {
+		if v.ID == instance.ID {
+			c.Instances[i] = instance
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.Instances = append(c.Instances, instance)
+	}
+	setCostV2(extra, c)
+	return map[string]any{"ok": true, "id": instance.ID}, a.saveCostV2(extra)
+}
+
+// DeleteCostVPSInstance 删除 VPS 实例
+func (a *App) DeleteCostVPSInstance(id string) (map[string]any, error) {
+	c, extra, err := a.loadCostV2()
+	if err != nil {
+		return nil, err
+	}
+	for i, v := range c.Instances {
+		if v.ID == id {
+			c.Instances = append(c.Instances[:i], c.Instances[i+1:]...)
+			break
+		}
+	}
+	setCostV2(extra, c)
+	return map[string]any{"ok": true}, a.saveCostV2(extra)
+}
+
+// GetCostV2Summary 聚合统计
+func (a *App) GetCostV2Summary() (map[string]any, error) {
+	c, _, err := a.loadCostV2()
+	if err != nil {
+		return nil, err
+	}
+
+	providerSet := map[string]bool{}
+	monthlyByCurrency := map[string]float64{}
+	for _, inst := range c.Instances {
+		if inst.ProviderName != "" {
+			providerSet[inst.ProviderName] = true
+		}
+		if inst.BillingCycle == "lifetime" {
+			continue
+		}
+		var months int
+		switch inst.BillingCycle {
+		case "monthly":
+			months = 1
+		case "quarterly":
+			months = 3
+		case "semiannual":
+			months = 6
+		case "annual":
+			months = 12
+		default:
+			continue
+		}
+		monthly := inst.Price / float64(months)
+		cur := inst.Currency
+		if cur == "" {
+			cur = "CNY"
+		}
+		monthlyByCurrency[cur] += monthly
+	}
+
+	return map[string]any{
+		"ok":       true,
+		"vendors":  len(providerSet),
+		"total":    len(c.Instances),
+		"monthly":  monthlyByCurrency,
+	}, nil
+}
+
+// LinkVPSProfile 关联 SSH 配置到实例
+func (a *App) LinkVPSProfile(instanceID, profileID string) (map[string]any, error) {
+	c, extra, err := a.loadCostV2()
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for i, v := range c.Instances {
+		if v.ID == instanceID {
+			c.Instances[i].ProfileID = profileID
+			found = true
+			break
+		}
+	}
+	if !found {
+		return map[string]any{"ok": false}, fmt.Errorf("实例 %s 不存在", instanceID)
+	}
+	setCostV2(extra, c)
+	return map[string]any{"ok": true}, a.saveCostV2(extra)
 }

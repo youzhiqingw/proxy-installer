@@ -14,3 +14,10 @@ tmp/
 *.rar
 .DS_Store
 Thumbs.db
+CLAUDE.md
+
+*.md
+!README.md
+proxy-installer.exe
+scripts/build-installer.ps1
+scripts/build-installer.ps1
