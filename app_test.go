@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/base64"
 	"testing"
+
+	"proxy-installer/internal/quality"
 )
 
 func TestParseIPQualitySourcesSummary(t *testing.T) {
@@ -12,11 +14,11 @@ func TestParseIPQualitySourcesSummary(t *testing.T) {
 		"SOURCE_TEXT=ping0|" + html + "\n" +
 		"SOURCE_TEXT=iplark|" + base64.StdEncoding.EncodeToString([]byte("ip=203.0.113.7\nloc=US\ncolo=LAX\nwarp=off")) + "\n"
 
-	raw, errs := parseIPQualitySources(out)
+	raw, errs := quality.ParseIPQualitySources(out)
 	if errs["ping0"] != "html_response" {
 		t.Fatalf("expected html_response for ping0, got %q", errs["ping0"])
 	}
-	summary, sites, sections := buildQualityReport(raw, errs)
+	summary, sites, sections := quality.BuildQualityReport(raw, errs)
 	if summary["sourceSuccess"] != 2 || summary["sourceTotal"] != 3 {
 		t.Fatalf("unexpected source summary: %+v", summary)
 	}

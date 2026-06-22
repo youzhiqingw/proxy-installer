@@ -1,12 +1,17 @@
+// Package deploy 负责部署脚本生成、配置文件构建和远程部署编排。
+// 从 app.go 提取，不依赖 Wails runtime（通过 sshclient.EmitFn 回调解耦）。
 package deploy
 
 import (
+	"bytes"
 	"fmt"
+	"text/template"
 
 	"golang.org/x/crypto/ssh"
 
 	"proxy-installer/internal/config"
 	"proxy-installer/internal/logger"
+	"proxy-installer/internal/singbox"
 	"proxy-installer/internal/sshclient"
 )
 
@@ -43,7 +48,7 @@ func Deploy(client *ssh.Client, emit sshclient.EmitFn, profile config.SSHProfile
 	}
 	if code == 11 {
 		emit("log", 34, "远端下载 sing-box 失败，尝试由本机上传 Linux 二进制")
-		if uploadErr := InstallSingBoxViaUpload(client, emit); uploadErr != nil {
+		if uploadErr := singbox.InstallSingBoxViaUpload(client, emit); uploadErr != nil {
 			msg := "本机上传 sing-box 兜底失败: " + uploadErr.Error()
 			emit("error", 34, msg)
 			return map[string]any{"ok": false, "code": code, "uploadError": uploadErr.Error()}, nil
@@ -64,50 +69,25 @@ func Deploy(client *ssh.Client, emit sshclient.EmitFn, profile config.SSHProfile
 	return map[string]any{"ok": true, "code": 0}, nil
 }
 
-// BuildDeployScript 根据 profile 和 config 生成完整的远程部署 bash 脚本
-func BuildDeployScript(profile config.SSHProfile, cfg config.DeployConfig) (string, error) {
-	host := NormalizeHostLiteral(profile.Host)
-	if host == "" {
-		return "", fmt.Errorf("host is empty")
-	}
-	cfg.Selected = FilterSupportedProtocols(cfg.Selected)
-	if len(cfg.Selected) == 0 {
-		return "", fmt.Errorf("请选择至少一个支持协议")
-	}
-	for _, id := range cfg.Selected {
-		port := PortOrDefault(cfg.Ports, id, ProtocolDefaults()[id])
-		if port < 1 || port > 65535 {
-			return "", fmt.Errorf("%s 内部端口必须在 1-65535 之间", id)
-		}
-		publicPort := PublicPortOrDefault(cfg, id, port)
-		if publicPort < 1 || publicPort > 65535 {
-			return "", fmt.Errorf("%s 公网端口必须在 1-65535 之间", id)
-		}
-	}
-	nodeName := SafeName(cfg.NodeName, config.DefaultNodeName)
-	token := SafeToken(cfg.Token)
-	sni := SafeDomain(cfg.SNI, config.DefaultSNI)
-	password := config.PasswordPrefix + token + config.PasswordSuffix
-	uuid := stableUUID(token)
-	realityPrivate, realityPublic, realityShortID := RealityKeys(token)
-	webPort := cfg.WebPort
-	if webPort == 0 {
-		webPort = config.DefaultWebPort
-	}
-	if cfg.PublicWebPort == 0 {
-		cfg.PublicWebPort = webPort
-	}
+// deployTemplateData 传递给部署脚本模板的结构化数据
+type deployTemplateData struct {
+	Token             string
+	SNI               string
+	PortList          string
+	ServerConfigB64   string
+	NginxConfigB64    string
+	ShadowrocketB64   string
+	V2rayngB64        string
+	MihomoB64         string
+	SingboxB64        string
+	WebPort           int
+}
 
-	serverConfig := BuildServerConfig(cfg.Selected, cfg.Ports, nodeName, password, uuid, realityPrivate, realityShortID, sni)
-	files := BuildClientFiles(host, cfg, nodeName, password, uuid, realityPublic, realityShortID)
-	nginxConfig := BuildNginxConfig(webPort, token, cfg.Rule)
-	selPorts := SelectedPorts(cfg.Selected, cfg.Ports)
-	portList := intsToShell(selPorts)
-
-	return fmt.Sprintf(`
+// deployScriptTpl 是部署 bash 脚本的 Go text/template（取代 fmt.Sprintf 拼接）
+var deployScriptTpl = template.Must(template.New("deploy").Parse(`
 set -euo pipefail
-emit(){ msg="$(printf '%%s' "$3" | base64 | tr -d '\n')"; printf '__VPS_STARTER_EVENT__|%%s|%%s|%%s\n' "$1" "$2" "$msg"; }
-write_b64(){ printf '%%s' "$1" | base64 -d > "$2"; }
+emit(){ msg="$(printf '%s' "$3" | base64 | tr -d '\n')"; printf '__VPS_STARTER_EVENT__|%s|%s|%s\n' "$1" "$2" "$msg"; }
+write_b64(){ printf '%s' "$1" | base64 -d > "$2"; }
 emit_file(){ stage="$1"; file="$2"; [ -f "$file" ] || return 0; while IFS= read -r line; do emit log "$stage" "$line"; done < "$file"; }
 backup_apt_file(){ f="$1"; [ -f "$f" ] || return 0; [ -f "$f.proxy-installer.bak" ] || cp "$f" "$f.proxy-installer.bak" 2>/dev/null || true; }
 repair_debian_apt_sources(){
@@ -319,29 +299,29 @@ emit progress 30 "Installing sing-box"
 install_sing_box || { emit error 34 "sing-box install failed：远端无法从 sing-box.app/GitHub 下载，请检查 VPS 的 IPv4/IPv6 出口和 DNS"; exit 11; }
 ensure_singbox_service || { emit error 34 "sing-box systemd service 准备失败"; exit 11; }
 emit progress 42 "Preparing directories"
-mkdir -p /etc/proxy-installer /etc/sing-box /etc/nginx/conf.d /var/www/proxy-installer/%s
-chmod 755 /etc/proxy-installer /var/www/proxy-installer /var/www/proxy-installer/%s
+mkdir -p /etc/proxy-installer /etc/sing-box /etc/nginx/conf.d /var/www/proxy-installer/{{.Token}}
+chmod 755 /etc/proxy-installer /var/www/proxy-installer /var/www/proxy-installer/{{.Token}}
 if [ ! -f /etc/proxy-installer/server.crt ] || [ ! -f /etc/proxy-installer/server.key ]; then
-  openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/proxy-installer/server.key -out /etc/proxy-installer/server.crt -subj "/CN=%s" -days 3650 >/dev/null 2>&1
+  openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/proxy-installer/server.key -out /etc/proxy-installer/server.crt -subj "/CN={{.SNI}}" -days 3650 >/dev/null 2>&1
   chmod 600 /etc/proxy-installer/server.key
   chmod 644 /etc/proxy-installer/server.crt
 fi
 emit progress 52 "Checking ports"
 systemctl stop sing-box 2>/dev/null || true
 busy=0
-for port in %s; do
+for port in {{.PortList}}; do
   if (ss -lntup 2>/dev/null || true) | grep -Eq "[:.]$port([[:space:]]|$)"; then emit error 52 "Port $port is busy"; busy=1; fi
 done
 if [ "$busy" -eq 1 ]; then exit 12; fi
 emit progress 64 "Writing config files"
-write_b64 "%s" /etc/sing-box/config.json
-write_b64 "%s" /etc/nginx/conf.d/proxy-installer.conf
-write_b64 "%s" /var/www/proxy-installer/%s/shadowrocket
-write_b64 "%s" /var/www/proxy-installer/%s/v2rayng
-write_b64 "%s" /var/www/proxy-installer/%s/mihomo.yaml
-write_b64 "%s" /var/www/proxy-installer/%s/sing-box.json
+write_b64 "{{.ServerConfigB64}}" /etc/sing-box/config.json
+write_b64 "{{.NginxConfigB64}}" /etc/nginx/conf.d/proxy-installer.conf
+write_b64 "{{.ShadowrocketB64}}" /var/www/proxy-installer/{{.Token}}/shadowrocket
+write_b64 "{{.V2rayngB64}}" /var/www/proxy-installer/{{.Token}}/v2rayng
+write_b64 "{{.MihomoB64}}" /var/www/proxy-installer/{{.Token}}/mihomo.yaml
+write_b64 "{{.SingboxB64}}" /var/www/proxy-installer/{{.Token}}/sing-box.json
 chmod 600 /etc/sing-box/config.json
-chmod -R 644 /var/www/proxy-installer/%s/* 2>/dev/null || true
+chmod -R 644 /var/www/proxy-installer/{{.Token}}/* 2>/dev/null || true
 if has_global_ipv6; then
   emit log 64 "检测到全局 IPv6，sing-box 与 nginx 将启用双栈监听"
 else
@@ -355,8 +335,8 @@ if ! sing-box check -c /etc/sing-box/config.json >/tmp/proxy-installer-singbox-c
   emit error 74 "sing-box config validation failed"; exit 13
 fi
 emit progress 82 "Opening firewall"
-if command -v ufw >/dev/null 2>&1; then for port in %s %d; do ufw allow "$port/tcp" >/dev/null 2>&1 || true; ufw allow "$port/udp" >/dev/null 2>&1 || true; done; fi
-if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then for port in %s %d; do firewall-cmd --add-port="$port/tcp" >/dev/null 2>&1 || true; firewall-cmd --add-port="$port/udp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$port/tcp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$port/udp" >/dev/null 2>&1 || true; done; firewall-cmd --reload >/dev/null 2>&1 || true; fi
+if command -v ufw >/dev/null 2>&1; then for port in {{.PortList}} {{.WebPort}}; do ufw allow "$port/tcp" >/dev/null 2>&1 || true; ufw allow "$port/udp" >/dev/null 2>&1 || true; done; fi
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then for port in {{.PortList}} {{.WebPort}}; do firewall-cmd --add-port="$port/tcp" >/dev/null 2>&1 || true; firewall-cmd --add-port="$port/udp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$port/tcp" >/dev/null 2>&1 || true; firewall-cmd --permanent --add-port="$port/udp" >/dev/null 2>&1 || true; done; firewall-cmd --reload >/dev/null 2>&1 || true; fi
 emit progress 88 "Starting nginx"
 nginx -t >/tmp/proxy-installer-nginx-check.log 2>&1 || { while IFS= read -r line; do emit log 88 "$line"; done </tmp/proxy-installer-nginx-check.log; emit error 88 "nginx config invalid"; exit 14; }
 systemctl enable nginx >/dev/null 2>&1 || true
@@ -366,13 +346,64 @@ systemctl enable sing-box >/dev/null 2>&1 || true
 systemctl restart sing-box >/tmp/proxy-installer-singbox-service.log 2>&1 || { while IFS= read -r line; do emit log 94 "$line"; done </tmp/proxy-installer-singbox-service.log; journalctl -u sing-box --no-pager -n 40 2>/dev/null | while IFS= read -r line; do emit log 94 "$line"; done; emit error 94 "sing-box failed"; exit 16; }
 systemctl is-active --quiet sing-box || { emit error 96 "sing-box is not active"; exit 17; }
 emit result 100 "Services are running"
-`,
-		token, token, sni, portList,
-		B64JSON(serverConfig), B64(nginxConfig),
-		B64(files["raw"]), token,
-		B64(files["raw"]), token,
-		B64(files["mihomo"]), token,
-		B64(files["singbox"]), token,
-		token, portList, webPort, portList, webPort,
-	), nil
+`))
+
+// BuildDeployScript 根据 profile 和 config 生成完整的远程部署 bash 脚本（使用 text/template）
+func BuildDeployScript(profile config.SSHProfile, cfg config.DeployConfig) (string, error) {
+	host := NormalizeHostLiteral(profile.Host)
+	if host == "" {
+		return "", fmt.Errorf("host is empty")
+	}
+	cfg.Selected = FilterSupportedProtocols(cfg.Selected)
+	if len(cfg.Selected) == 0 {
+		return "", fmt.Errorf("请选择至少一个支持协议")
+	}
+	for _, id := range cfg.Selected {
+		port := PortOrDefault(cfg.Ports, id, ProtocolDefaults()[id])
+		if port < 1 || port > 65535 {
+			return "", fmt.Errorf("%s 内部端口必须在 1-65535 之间", id)
+		}
+		publicPort := PublicPortOrDefault(cfg, id, port)
+		if publicPort < 1 || publicPort > 65535 {
+			return "", fmt.Errorf("%s 公网端口必须在 1-65535 之间", id)
+		}
+	}
+	nodeName := SafeName(cfg.NodeName, config.DefaultNodeName)
+	token := SafeToken(cfg.Token)
+	sni := SafeDomain(cfg.SNI, config.DefaultSNI)
+	password := config.PasswordPrefix + token + config.PasswordSuffix
+	uuid := stableUUID(token)
+	realityPrivate, realityPublic, realityShortID := RealityKeys(token)
+	webPort := cfg.WebPort
+	if webPort == 0 {
+		webPort = config.DefaultWebPort
+	}
+	if cfg.PublicWebPort == 0 {
+		cfg.PublicWebPort = webPort
+	}
+
+	serverConfig := BuildServerConfig(cfg.Selected, cfg.Ports, nodeName, password, uuid, realityPrivate, realityShortID, sni)
+	files := BuildClientFiles(host, cfg, nodeName, password, uuid, realityPublic, realityShortID)
+	nginxConfig := BuildNginxConfig(webPort, token, cfg.Rule)
+	selPorts := SelectedPorts(cfg.Selected, cfg.Ports)
+	portList := intsToShell(selPorts)
+
+	data := deployTemplateData{
+		Token:           token,
+		SNI:             sni,
+		PortList:        portList,
+		ServerConfigB64: B64JSON(serverConfig),
+		NginxConfigB64:  B64(nginxConfig),
+		ShadowrocketB64: B64(files["raw"]),
+		V2rayngB64:      B64(files["raw"]),
+		MihomoB64:       B64(files["mihomo"]),
+		SingboxB64:      B64(files["singbox"]),
+		WebPort:         webPort,
+	}
+
+	var buf bytes.Buffer
+	if err := deployScriptTpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("渲染部署脚本模板失败: %w", err)
+	}
+	return buf.String(), nil
 }

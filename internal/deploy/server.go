@@ -4,8 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"proxy-installer/internal/config"
 )
@@ -261,4 +264,31 @@ func BuildSubscriptionURL(host string, cfg config.DeployConfig, client string) s
 	path = strings.ReplaceAll(path, "{client}", client)
 	path = SafeLocationPath(path, token, client)
 	return fmt.Sprintf("http://%s:%d%s", FormatHostForURL(host), PublicWebPortOrDefault(cfg), path)
+}
+
+// NodeSpeedClientConfig 为节点测速获取 sing-box 客户端配置：优先从订阅 URL 下载，失败则本地推导
+func NodeSpeedClientConfig(host string, cfg config.DeployConfig, name, password, uuid, realityPublic, realityShortID string, listenPort int) (string, string, string) {
+	subURL := BuildSubscriptionURL(host, cfg, "sing-box.json")
+	client := http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Get(subURL)
+	if err == nil && resp != nil {
+		defer resp.Body.Close()
+		if resp.StatusCode < 400 {
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+			if readErr == nil && len(strings.TrimSpace(string(body))) > 0 {
+				if cfgStr, rewriteErr := RewriteSingboxListenPort(body, listenPort); rewriteErr == nil {
+					return cfgStr, "subscription", ""
+				} else {
+					return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", "订阅配置解析失败，已回退到本地推导配置: " + rewriteErr.Error()
+				}
+			}
+			return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", "订阅端口返回空内容，已回退到本地推导配置"
+		}
+		return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", fmt.Sprintf("订阅请求 HTTP %d，已回退到本地推导配置", resp.StatusCode)
+	}
+	warning := "订阅请求失败，已回退到本地推导配置"
+	if err != nil {
+		warning += ": " + err.Error()
+	}
+	return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", warning
 }

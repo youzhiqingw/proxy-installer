@@ -1,4 +1,6 @@
-package deploy
+// Package singbox 负责 sing-box 二进制管理：本机查找/下载、远端上传安装、SHA256 校验。
+// 从 deploy/singbox.go 提取为独立包，避免 deploy 包过大。
+package singbox
 
 import (
 	"archive/tar"
@@ -21,8 +23,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"proxy-installer/internal/config"
 	"proxy-installer/internal/sshclient"
+	"proxy-installer/internal/util"
 )
 
 type githubRelease struct {
@@ -183,7 +185,7 @@ mkdir -p /usr/local/bin
 mv "$tmp" /usr/local/bin/sing-box
 /usr/local/bin/sing-box version
 `
-	if err := session.Start("bash -lc " + ShellQuote(script)); err != nil {
+	if err := session.Start("bash -lc " + util.ShellQuote(script)); err != nil {
 		return err
 	}
 
@@ -216,7 +218,7 @@ mv "$tmp" /usr/local/bin/sing-box
 	}
 	copyErr := <-copyDone
 	if waitErr != nil {
-		return fmt.Errorf("远端安装上传的 sing-box 失败: %w stdout=%s stderr=%s", waitErr, TrimForMessage(stdout.String(), 400), TrimForMessage(stderr.String(), 400))
+		return fmt.Errorf("远端安装上传的 sing-box 失败: %w stdout=%s stderr=%s", waitErr, util.TrimForMessage(stdout.String(), 400), util.TrimForMessage(stderr.String(), 400))
 	}
 	if copyErr != nil {
 		return fmt.Errorf("上传 sing-box 数据失败: %w", copyErr)
@@ -497,29 +499,3 @@ func findLocalSingBox() (string, error) {
 	return "", fmt.Errorf("本机未找到 sing-box，请把 sing-box.exe 放到程序同目录或加入 PATH 后再测试节点速度")
 }
 
-// NodeSpeedClientConfig 为节点测速获取 sing-box 客户端配置：优先从订阅 URL 下载，失败则本地推导
-func NodeSpeedClientConfig(host string, cfg config.DeployConfig, name, password, uuid, realityPublic, realityShortID string, listenPort int) (string, string, string) {
-	subURL := BuildSubscriptionURL(host, cfg, "sing-box.json")
-	client := http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Get(subURL)
-	if err == nil && resp != nil {
-		defer resp.Body.Close()
-		if resp.StatusCode < 400 {
-			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-			if readErr == nil && len(strings.TrimSpace(string(body))) > 0 {
-				if cfgStr, rewriteErr := RewriteSingboxListenPort(body, listenPort); rewriteErr == nil {
-					return cfgStr, "subscription", ""
-				} else {
-					return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", "订阅配置解析失败，已回退到本地推导配置: " + rewriteErr.Error()
-				}
-			}
-			return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", "订阅端口返回空内容，已回退到本地推导配置"
-		}
-		return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", fmt.Sprintf("订阅请求 HTTP %d，已回退到本地推导配置", resp.StatusCode)
-	}
-	warning := "订阅请求失败，已回退到本地推导配置"
-	if err != nil {
-		warning += ": " + err.Error()
-	}
-	return BuildSingboxClientWithListen(host, cfg, name, password, uuid, realityPublic, realityShortID, listenPort), "generated", warning
-}

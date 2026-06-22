@@ -6,43 +6,53 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/curve25519"
 
 	"proxy-installer/internal/config"
+	"proxy-installer/internal/util"
 )
 
-// ── 共享工具函数（供 speedtest / quality / app 等包引用）──────
+// ── 共享工具函数的向后兼容转发（实际定义在 internal/util）──────
 
-// ShellQuote 将字符串用单引号包裹，内部单引号做 '\'' 转义，用于安全拼入 shell 命令
-func ShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
+// ShellQuote 将字符串用单引号包裹，内部单引号做 '\'' 转义
+func ShellQuote(s string) string { return util.ShellQuote(s) }
 
 // B64 对字符串做 base64 编码
-func B64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+func B64(s string) string { return util.B64(s) }
 
 // B64JSON 将值序列化为 JSON 后做 base64 编码
-func B64JSON(v any) string {
-	data, _ := json.MarshalIndent(v, "", "  ")
-	return B64(string(data))
-}
+func B64JSON(v any) string { return util.B64JSON(v) }
 
 // ParseKeyValue 解析 key=value 格式的文本为 map
-func ParseKeyValue(text string) map[string]string {
-	kv := map[string]string{}
-	for _, line := range strings.Split(text, "\n") {
-		parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
-		if len(parts) == 2 {
-			kv[parts[0]] = strings.TrimSpace(parts[1])
-		}
-	}
-	return kv
-}
+func ParseKeyValue(text string) map[string]string { return util.ParseKeyValue(text) }
+
+// StripANSI 移除字符串中的 ANSI 转义序列
+func StripANSI(s string) string { return util.StripANSI(s) }
+
+// TrimForMessage 截断字符串到指定长度
+func TrimForMessage(s string, max int) string { return util.TrimForMessage(s, max) }
+
+// FlattenJSON 将嵌套 JSON 结构展平
+func FlattenJSON(prefix string, value any, out map[string]string) { util.FlattenJSON(prefix, value, out) }
+
+// FlattenAny 将任意值展平为 dot-separated key → string value 的 map
+func FlattenAny(value any) map[string]string { return util.FlattenAny(value) }
+
+// FirstValue 从 map 中按优先级取第一个非空值
+func FirstValue(values map[string]string, keys ...string) string { return util.FirstValue(values, keys...) }
+
+// CompactJoin 用 " / " 连接非空字符串
+func CompactJoin(values ...string) string { return util.CompactJoin(values...) }
+
+// SortedKeys 返回 map 的所有 key（排序后）
+func SortedKeys(values map[string]string) []string { return util.SortedKeys(values) }
+
+// ── 部署专用工具函数 ──────────────────────────────────────────
 
 // PortOrDefault 从端口 map 中获取指定协议的端口，不存在则返回默认值
 func PortOrDefault(ports map[string]int, key string, def int) int {
@@ -256,108 +266,4 @@ func FormatHostForURL(host string) string {
 		return "[" + host + "]"
 	}
 	return host
-}
-
-// FlattenJSON 将嵌套 JSON 结构展平为 dot-separated key → string value 的 map
-func FlattenJSON(prefix string, value any, out map[string]string) {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, item := range typed {
-			next := key
-			if prefix != "" {
-				next = prefix + "." + key
-			}
-			FlattenJSON(next, item, out)
-		}
-	case map[string]string:
-		for key, item := range typed {
-			next := key
-			if prefix != "" {
-				next = prefix + "." + key
-			}
-			out[next] = strings.TrimSpace(StripANSI(item))
-		}
-	case []any:
-		for index, item := range typed {
-			FlattenJSON(fmt.Sprintf("%s[%d]", prefix, index), item, out)
-		}
-	case string:
-		out[prefix] = strings.TrimSpace(StripANSI(typed))
-	case float64:
-		out[prefix] = strconv.FormatFloat(typed, 'f', -1, 64)
-	case bool:
-		out[prefix] = strconv.FormatBool(typed)
-	case nil:
-	default:
-		out[prefix] = fmt.Sprint(typed)
-	}
-}
-
-// FlattenAny 将任意值展平为 dot-separated key → string value 的 map（FlattenJSON 的便捷封装）
-func FlattenAny(value any) map[string]string {
-	flat := map[string]string{}
-	FlattenJSON("", value, flat)
-	return flat
-}
-
-// StripANSI 移除字符串中的 ANSI 转义序列
-func StripANSI(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for i := 0; i < len(s); i++ {
-		ch := s[i]
-		if inEsc {
-			if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
-				inEsc = false
-			}
-			continue
-		}
-		if ch == 0x1b {
-			inEsc = true
-			continue
-		}
-		b.WriteByte(ch)
-	}
-	return strings.TrimSpace(b.String())
-}
-
-// TrimForMessage 截断字符串到指定长度，用于日志/错误消息显示
-func TrimForMessage(s string, max int) string {
-	s = strings.TrimSpace(StripANSI(s))
-	if max <= 0 || len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
-}
-
-// FirstValue 从 map 中按优先级取第一个非空值
-func FirstValue(values map[string]string, keys ...string) string {
-	for _, key := range keys {
-		if value := strings.TrimSpace(values[key]); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-// CompactJoin 用 " / " 连接非空字符串
-func CompactJoin(values ...string) string {
-	var parts []string
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			parts = append(parts, value)
-		}
-	}
-	return strings.Join(parts, " / ")
-}
-
-// SortedKeys 返回 map 的所有 key（排序后）
-func SortedKeys(values map[string]string) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
