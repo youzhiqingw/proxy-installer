@@ -1,4 +1,4 @@
-export namespace main {
+export namespace config {
 	
 	export class DeployConfig {
 	    profileId: string;
@@ -37,7 +37,6 @@ export namespace main {
 	    user: string;
 	    username: string;
 	    port: number;
-	    password: string;
 	    password_encrypted?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -52,7 +51,6 @@ export namespace main {
 	        this.user = source["user"];
 	        this.username = source["username"];
 	        this.port = source["port"];
-	        this.password = source["password"];
 	        this.password_encrypted = source["password_encrypted"];
 	    }
 	}
@@ -95,6 +93,10 @@ export namespace main {
 		}
 	}
 	
+
+}
+
+export namespace main {
 	
 	export class VPSInstance {
 	    id: string;
