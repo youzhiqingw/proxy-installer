@@ -3,7 +3,6 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -32,254 +31,56 @@ import (
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/ssh"
 
+	"proxy-installer/internal/config"
 	"proxy-installer/internal/logger"
+	"proxy-installer/internal/sshclient"
 	"proxy-installer/internal/vault"
 )
 
-// ── 全局默认值常量 ──────────────────────────────────────────
-// 集中管理所有硬编码默认值，避免散落在各函数中导致修改遗漏。
+// ── 常量别名（实际定义在 internal/config/types.go）──────────────
+// 使用别名避免与函数参数名 config (DeployConfig) 的命名冲突
 const (
-	// DefaultToken 是订阅令牌的默认值
-	DefaultToken = "starter2026"
-	// DefaultSNI 是 TLS 握手的默认 SNI 域名
-	DefaultSNI = "www.bing.com"
-	// DefaultSubRule 是订阅路由规则的默认模板
-	DefaultSubRule = "/sub/{token}/{client}"
-	// DefaultWebPort 是 Web 服务的默认监听端口
-	DefaultWebPort = 8080
-	// DefaultNodeName 是节点名称的默认回退值
-	DefaultNodeName = "starter-node"
-	// PasswordPrefix 和 PasswordSuffix 用于拼接协议密码: Pwd_{token}_2026
-	PasswordPrefix = "Pwd_"
-	PasswordSuffix = "_2026"
+	DefaultToken   = config.DefaultToken
+	DefaultSNI     = config.DefaultSNI
+	DefaultSubRule = config.DefaultSubRule
+	DefaultWebPort = config.DefaultWebPort
+	DefaultNodeName = config.DefaultNodeName
+	PasswordPrefix = config.PasswordPrefix
+	PasswordSuffix = config.PasswordSuffix
 )
 
-// ProtocolDefaultPorts 定义各协议的默认端口号
-var ProtocolDefaultPorts = map[string]int{
-	"vless-reality": 443,
-	"hy2":           8443,
-	"tuic":          8444,
-	"trojan":        8445,
-	"ss":            8388,
-	"vmess":         2083,
-}
+var ProtocolDefaultPorts = config.ProtocolDefaultPorts
 
 type App struct {
-	ctx            context.Context
-	mu             sync.Mutex
-	allowQuit      bool
-	hostKeyStore   *SSHHostKeyStore
-	vault          *vault.Vault
-	pendingHostKey *pendingHostKeyInfo
+	ctx          context.Context
+	mu           sync.Mutex
+	allowQuit    bool
+	sshClient    *sshclient.Client
+	vault        *vault.Vault
 }
 
-// pendingHostKeyInfo 暂存首次连接时的 HostKey 信息，等待用户确认
-type pendingHostKeyInfo struct {
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	KeyType     string `json:"keyType"`
-	Fingerprint string `json:"fingerprint"`
-	KeyBytes    []byte `json:"-"`
-}
+// ── 类型已迁移至 internal/config 和 internal/sshclient ──────────
+// SSHProfile, DeployConfig, DeployEvent, CommandResult, AppState → config 包
+// HostKeyStore, HostKeyEntry, ErrNewHostKey, PendingHostKey → sshclient 包
+// 类型别名（向后兼容，供本文件内其余代码使用）
+type SSHProfile = config.SSHProfile
+type DeployConfig = config.DeployConfig
+type DeployEvent = config.DeployEvent
+type CommandResult = config.CommandResult
+type AppState = config.AppState
 
-// ErrNewHostKey 表示首次连接遇到未知 HostKey，需要用户确认
-type ErrNewHostKey struct {
-	Host        string `json:"host"`
-	Port        int    `json:"port"`
-	KeyType     string `json:"keyType"`
-	Fingerprint string `json:"fingerprint"`
-}
-
-func (e *ErrNewHostKey) Error() string {
-	return fmt.Sprintf("HOSTKEY_CONFIRM:%s:%d 首次连接，请确认服务器指纹 %s (%s)", e.Host, e.Port, e.Fingerprint, e.KeyType)
-}
-
-// SSHHostKeyEntry 用于存储已知 HostKey
-type SSHHostKeyEntry struct {
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	Keys   []byte `json:"keys"`
-	Hash   string `json:"hash"`
-	Added  string `json:"added"`
-}
-
-// SSHHostKeyStore 管理已知 HostKey
-type SSHHostKeyStore struct {
-	entries []SSHHostKeyEntry
-	mu      sync.RWMutex
-	path    string
-}
-
-// knownHostsPath 返回 known_hosts 文件路径
-func knownHostsPath() (string, error) {
-	dirs, err := proxyDirs()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dirs["data"], "known_hosts.json"), nil
-}
-
-// NewSSHHostKeyStore 创建 HostKey 存储
-func NewSSHHostKeyStore() (*SSHHostKeyStore, error) {
-	path, err := knownHostsPath()
-	if err != nil {
-		return nil, err
-	}
-	store := &SSHHostKeyStore{path: path}
-	if err := store.load(); err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	return store, nil
-}
-
-// load 从文件加载 HostKey
-func (s *SSHHostKeyStore) load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		return err
-	}
-
-	var entries []SSHHostKeyEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return err
-	}
-	s.entries = entries
-	return nil
-}
-
-// save 保存 HostKey 到文件
-func (s *SSHHostKeyStore) save() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data, err := json.MarshalIndent(s.entries, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-// Get 获取指定主机的 HostKey
-func (s *SSHHostKeyStore) Get(host string, port int) ([]byte, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	for _, e := range s.entries {
-		if e.Host == host && e.Port == port {
-			return e.Keys, true
-		}
-	}
-	return nil, false
-}
-
-// Add 添加新的 HostKey
-func (s *SSHHostKeyStore) Add(host string, port int, keys []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 检查是否已存在
-	for i, e := range s.entries {
-		if e.Host == host && e.Port == port {
-			s.entries[i].Keys = keys
-			s.entries[i].Added = time.Now().Format(time.RFC3339)
-			return s.save()
-		}
-	}
-
-	s.entries = append(s.entries, SSHHostKeyEntry{
-		Host:   host,
-		Port:   port,
-		Keys:   keys,
-		Hash:   fmt.Sprintf("sha256:%s", hex.EncodeToString(keys)),
-		Added:  time.Now().Format(time.RFC3339),
-	})
-	return s.save()
-}
-
-// Remove 删除指定主机的 HostKey
-func (s *SSHHostKeyStore) Remove(host string, port int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for i, e := range s.entries {
-		if e.Host == host && e.Port == port {
-			s.entries = append(s.entries[:i], s.entries[i+1:]...)
-			return s.save() == nil
-		}
-	}
-	return false
-}
-
-// Entries 返回所有条目
-func (s *SSHHostKeyStore) Entries() []SSHHostKeyEntry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.entries
-}
-
-type SSHProfile struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Host     string `json:"host"`
-	User     string `json:"user"`
-	Username string `json:"username"`
-	Port     int    `json:"port"`
-	Password string `json:"password"`  // 保留兼容性，后续清空
-	PasswordEncrypted string `json:"password_encrypted,omitempty"`  // 新增：加密字段
-}
-
-type DeployConfig struct {
-	ProfileID     string         `json:"profileId"`
-	NodeName      string         `json:"nodeName"`
-	Selected      []string       `json:"selected"`
-	Ports         map[string]int `json:"ports"`
-	PublicPorts   map[string]int `json:"publicPorts"`
-	WebPort       int            `json:"webPort"`
-	PublicWebPort int            `json:"publicWebPort"`
-	Token         string         `json:"token"`
-	Rule          string         `json:"rule"`
-	SNI           string         `json:"sni"`
-}
-
-type DeployEvent struct {
-	Type    string `json:"type"`
-	Percent int    `json:"percent,omitempty"`
-	Message string `json:"message"`
-}
-
-type CommandResult struct {
-	Code   int    `json:"code"`
-	Stdout string `json:"stdout"`
-	Stderr string `json:"stderr"`
-}
-
-type AppState struct {
-	Profiles     []SSHProfile   `json:"profiles"`
-	DeployConfig DeployConfig   `json:"deployConfig"`
-	ActiveClient string         `json:"activeClient"`
-	UpdatedAt    string         `json:"updatedAt"`
-	Extra        map[string]any `json:"extra,omitempty"`
-}
-
-// NewApp 创建 App 实例并初始化 HostKey 存储和 Vault
+// NewApp 创建 App 实例并初始化 SSH 客户端和 Vault
 func NewApp() *App {
-	store, _ := NewSSHHostKeyStore()
+	var store *sshclient.HostKeyStore
+	dirs, _ := proxyDirs()
+	if dirs != nil {
+		knownHosts := filepath.Join(dirs["data"], "known_hosts.json")
+		store, _ = sshclient.NewHostKeyStore(knownHosts)
+	}
 	v, _ := newAppVault()
 	return &App{
-		hostKeyStore: store,
-		vault:        v,
+		sshClient: sshclient.NewClient(store),
+		vault:     v,
 	}
 }
 
@@ -414,13 +215,19 @@ func (a *App) LoadAppState() (map[string]any, error) {
 			if p.PasswordEncrypted != "" {
 				dec, err := a.vault.Decrypt(p.PasswordEncrypted)
 				if err == nil {
-					p.Password = dec
+					p.Password = []byte(dec)
 				} else {
-					fmt.Fprintf(os.Stderr, "WARNING: Failed to decrypt password for profile %s: %v\n", p.Name, err)
-					p.Password = p.PasswordEncrypted
+					logger.Warn("密码解密失败", "profile", p.Name, "error", err.Error())
+					p.Password = []byte(p.PasswordEncrypted)
 				}
 			}
 		}
+	}
+
+	// T-08: 清除内存中的明文密码，防止通过前端返回泄露
+	// 密码仅在 SSH 操作时按需解密使用
+	for i := range state.Profiles {
+		state.Profiles[i].ClearPassword()
 	}
 
 	return map[string]any{
@@ -450,13 +257,16 @@ func (a *App) SaveAppState(state AppState) (map[string]any, error) {
 	if a.vault != nil {
 		for i := range state.Profiles {
 			p := &state.Profiles[i]
-			if p.Password != "" {
-				enc, err := a.vault.Encrypt(p.Password)
+			if len(p.Password) > 0 {
+				pwStr := string(p.Password)
+				enc, err := a.vault.Encrypt(pwStr)
+				p.ClearPassword()
+				pwStr = "" // drop reference
 				if err == nil {
 					p.PasswordEncrypted = enc
-					p.Password = ""
 				}
 			}
+			// If password is empty but PasswordEncrypted exists, keep it (no change)
 		}
 	}
 
@@ -1120,100 +930,14 @@ func (a *App) StartDeploy(profile SSHProfile, config DeployConfig) (map[string]a
 	return map[string]any{"ok": true, "code": 0}, nil
 }
 
-// hostKeyCallback 实现 SSH HostKey 验证
-// 首次连接返回 ErrNewHostKey 让前端弹出确认，后续连接自动验证
-func (a *App) hostKeyCallback(host string, remote net.Addr, key ssh.PublicKey) error {
-	if a.hostKeyStore == nil {
-		logger.Warn("HostKeyStore 未初始化，跳过验证", "host", host)
-		return nil
-	}
-	storedKeys, found := a.hostKeyStore.Get(host, remote.(*net.TCPAddr).Port)
-	if found {
-		expected := string(storedKeys)
-		actual := string(key.Marshal())
-		if expected == actual {
-			return nil
-		}
-		logger.Warn("SSH HostKey 变更", "host", host, "port", remote.(*net.TCPAddr).Port,
-			"fingerprint", ssh.FingerprintSHA256(key))
-		return fmt.Errorf("SSH HostKey 变更，可能存在中间人攻击风险")
-	}
-	// 首次连接：暂存 HostKey 信息，返回错误让前端弹出确认
-	fp := ssh.FingerprintSHA256(key)
-	port := remote.(*net.TCPAddr).Port
-	logger.Info("首次连接，等待用户确认 HostKey", "host", host, "port", port, "fingerprint", fp)
-	a.mu.Lock()
-	a.pendingHostKey = &pendingHostKeyInfo{
-		Host:        host,
-		Port:        port,
-		KeyType:     key.Type(),
-		Fingerprint: fp,
-		KeyBytes:    key.Marshal(),
-	}
-	a.mu.Unlock()
-	return &ErrNewHostKey{Host: host, Port: port, KeyType: key.Type(), Fingerprint: fp}
-}
-
 // AcceptHostKey 接受并存储待确认的 HostKey，前端在用户确认后调用
 func (a *App) AcceptHostKey(host string, port int) error {
-	a.mu.Lock()
-	pending := a.pendingHostKey
-	a.pendingHostKey = nil
-	a.mu.Unlock()
-	if pending == nil {
-		return fmt.Errorf("没有待确认的 HostKey")
-	}
-	if pending.Host != host || pending.Port != port {
-		return fmt.Errorf("HostKey 信息不匹配")
-	}
-	if a.hostKeyStore == nil {
-		return fmt.Errorf("HostKeyStore 未初始化")
-	}
-	if err := a.hostKeyStore.Add(host, port, pending.KeyBytes); err != nil {
-		logger.Error("保存 HostKey 失败", "host", host, "error", err.Error())
-		return err
-	}
-	logger.Info("用户已确认 HostKey", "host", host, "port", port, "fingerprint", pending.Fingerprint)
-	return nil
+	return a.sshClient.AcceptHostKey(host, port)
 }
 
+// connect 建立 SSH 连接（委托给 sshclient.Client）
 func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
-	host := normalizeHostLiteral(profile.Host)
-	if host == "" {
-		return nil, fmt.Errorf("请输入 VPS 主机/IP")
-	}
-	user := strings.TrimSpace(profile.User)
-	if user == "" {
-		user = strings.TrimSpace(profile.Username)
-	}
-	if user == "" {
-		user = "root"
-	}
-	port := profile.Port
-	if port == 0 {
-		port = 22
-	}
-	if profile.Password == "" {
-		return nil, fmt.Errorf("请输入 SSH 密码")
-	}
-
-	config := &ssh.ClientConfig{
-		User: user,
-		Auth: []ssh.AuthMethod{ssh.Password(profile.Password)},
-		HostKeyCallback: func(host string, remote net.Addr, key ssh.PublicKey) error {
-			return a.hostKeyCallback(host, remote, key)
-		},
-		Timeout: 18 * time.Second,
-	}
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	logger.Info("SSH 连接", "host", host, "port", port, "user", user)
-	client, err := ssh.Dial("tcp", addr, config)
-	if err != nil {
-		logger.Error("SSH 连接失败", "host", host, "port", port, "error", err.Error())
-		return nil, err
-	}
-	logger.Info("SSH 连接成功", "host", host, "port", port)
-	return client, nil
+	return a.sshClient.Connect(profile)
 }
 
 // sanitizeLogMessage 对日志消息中的敏感信息进行脱敏处理
@@ -1251,100 +975,14 @@ func (a *App) emit(kind string, percent int, message string) {
 	runtime.EventsEmit(a.ctx, "deploy:event", DeployEvent{Type: kind, Percent: percent, Message: message})
 }
 
+// runStreaming 委托给 sshclient.RunStreaming，注入 emit 回调
 func (a *App) runStreaming(client *ssh.Client, command string) (int, error) {
-	session, err := client.NewSession()
-	if err != nil {
-		return -1, err
-	}
-	defer session.Close()
-
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		return -1, err
-	}
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		return -1, err
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go a.scanDeployStream(stdout, "log", &wg)
-	go a.scanDeployStream(stderr, "log", &wg)
-
-	if err := session.Start(command); err != nil {
-		return -1, err
-	}
-	err = session.Wait()
-	wg.Wait()
-
-	if err == nil {
-		return 0, nil
-	}
-	if exitErr, ok := err.(*ssh.ExitError); ok {
-		return exitErr.ExitStatus(), nil
-	}
-	return -1, err
+	return sshclient.RunStreaming(client, command, a.emit)
 }
 
-func (a *App) scanDeployStream(reader io.Reader, fallbackType string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "__VPS_STARTER_EVENT__|") {
-			parts := strings.SplitN(line, "|", 4)
-			if len(parts) == 4 {
-				percent, _ := strconv.Atoi(parts[2])
-				messageBytes, err := base64.StdEncoding.DecodeString(parts[3])
-				if err == nil {
-					a.emit(parts[1], percent, string(messageBytes))
-					continue
-				}
-			}
-		}
-		var event DeployEvent
-		if err := json.Unmarshal([]byte(line), &event); err == nil && event.Type != "" {
-			a.emit(event.Type, event.Percent, event.Message)
-			continue
-		}
-		a.emit(fallbackType, 0, line)
-	}
-}
-
+// runCommand 委托给 sshclient.RunCommand
 func runCommand(client *ssh.Client, command string, timeout time.Duration) (CommandResult, error) {
-	session, err := client.NewSession()
-	if err != nil {
-		return CommandResult{}, err
-	}
-	defer session.Close()
-
-	var stdout, stderr bytes.Buffer
-	session.Stdout = &stdout
-	session.Stderr = &stderr
-
-	done := make(chan error, 1)
-	go func() { done <- session.Run(command) }()
-
-	select {
-	case err := <-done:
-		code := 0
-		if err != nil {
-			if exitErr, ok := err.(*ssh.ExitError); ok {
-				code = exitErr.ExitStatus()
-			} else {
-				return CommandResult{}, err
-			}
-		}
-		return CommandResult{Code: code, Stdout: stdout.String(), Stderr: stderr.String()}, nil
-	case <-time.After(timeout):
-		_ = session.Signal(ssh.SIGKILL)
-		return CommandResult{}, fmt.Errorf("远程命令超时")
-	}
+	return sshclient.RunCommand(client, command, timeout)
 }
 
 func parseDetect(text string) map[string]any {
