@@ -43,6 +43,7 @@ import {
   Zap,
 } from 'lucide-react';
 import {
+  AcceptHostKey,
   CheckPorts,
   CleanupSelectedFootprint,
   DeleteCostVPSInstance,
@@ -120,6 +121,7 @@ function App() {
   const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '' });
   const [speed, setSpeed] = useState({ running: false, qualityRunning: false, items: [], remote: null, node: null, quality: null, error: '', notice: '' });
   const [maintenance, setMaintenance] = useState({ running: false, footprint: null, logs: [], error: '' });
+  const [hostKeyDialog, setHostKeyDialog] = useState(null);
   const [deployConfig, setDeployConfig] = useState({
     profileId: '',
     nodeName: 'starter-node',
@@ -226,10 +228,38 @@ function App() {
     setDraft({ name: '', host: '', user: 'root', port: 22, password: '' });
   };
 
+  // 检测 HostKey 确认错误并弹出确认对话框，确认后自动重试
+  const callSSH = async (fn, ...args) => {
+    try {
+      return await callBackend(fn, ...args);
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes('HOSTKEY_CONFIRM:')) {
+        const match = msg.match(/HOSTKEY_CONFIRM:(\S+):(\d+)\s.*?指纹\s+(\S+)\s+\((\S+)\)/);
+        return new Promise((resolve, reject) => {
+          setHostKeyDialog({
+            host: match?.[1] || '',
+            port: Number(match?.[2] || 22),
+            fingerprint: match?.[3] || '',
+            keyType: match?.[4] || '',
+            onRetry: async () => {
+              try {
+                resolve(await callBackend(fn, ...args));
+              } catch (e) {
+                reject(e);
+              }
+            },
+          });
+        });
+      }
+      throw err;
+    }
+  };
+
   const testProfile = async (item) => {
     try {
       setProfiles((current) => patchProfile(current, item.id, { status: '连接中' }));
-      const result = await callBackend(TestConnection, item);
+      const result = await callSSH(TestConnection, item);
       setProfiles((current) => patchProfile(current, item.id, { status: result.message || '已连接' }));
     } catch (error) {
       setProfiles((current) => patchProfile(current, item.id, { status: `失败: ${error}` }));
@@ -239,7 +269,7 @@ function App() {
   const inspectProfile = async (item) => {
     try {
       setProfiles((current) => patchProfile(current, item.id, { status: '体检中' }));
-      const result = await callBackend(InspectVPS, item);
+      const result = await callSSH(InspectVPS, item);
       setProfiles((current) => patchProfile(current, item.id, { status: '体检完成', report: result.report }));
     } catch (error) {
       setProfiles((current) => patchProfile(current, item.id, { status: `体检失败: ${error}` }));
@@ -250,7 +280,7 @@ function App() {
     if (!profile) return;
     const portList = [...deployConfig.selected.map((id) => deployConfig.ports[id]), deployConfig.webPort];
     try {
-      const result = await callBackend(CheckPorts, profile, portList);
+      const result = await callSSH(CheckPorts, profile, portList);
       setProgress((current) => ({
         ...current,
         status: 'idle',
@@ -270,7 +300,7 @@ function App() {
     setDeploying(false);
     setActiveTab('progress');
     try {
-      const result = await callBackend(StartDeploy, profile, deployConfig);
+      const result = await callSSH(StartDeploy, profile, deployConfig);
       if (!result.ok) {
         setProgress((current) => ({ ...current, status: 'failed', message: `部署失败，退出码 ${result.code}` }));
       }
@@ -283,7 +313,7 @@ function App() {
     if (!profile) return;
     setSpeed((current) => ({ ...current, running: true, error: '', notice: '' }));
     try {
-      const result = await callBackend(MeasureLatency, profile, deployConfig);
+      const result = await callSSH(MeasureLatency, profile, deployConfig);
       setSpeed((current) => ({ ...current, running: false, items: result.items || [], error: '', notice: '' }));
     } catch (error) {
       setSpeed((current) => ({ ...current, running: false, error: String(error) }));
@@ -294,7 +324,7 @@ function App() {
     if (!profile) return;
     setSpeed((current) => ({ ...current, running: true, error: '', notice: '' }));
     try {
-      const result = await callBackend(RunSpeedTest, profile);
+      const result = await callSSH(RunSpeedTest, profile);
       setSpeed((current) => ({ ...current, running: false, remote: result, error: '', notice: '' }));
     } catch (error) {
       setSpeed((current) => ({ ...current, running: false, error: String(error) }));
@@ -305,8 +335,8 @@ function App() {
     if (!profile) return;
     setSpeed((current) => ({ ...current, running: true, error: '', notice: '', remote: null, node: null }));
     const [directResult, nodeResult] = await Promise.allSettled([
-      callBackend(RunSpeedTest, profile),
-      callBackend(RunNodeSpeedTest, profile, deployConfig),
+      callSSH(RunSpeedTest, profile),
+      callSSH(RunNodeSpeedTest, profile, deployConfig),
     ]);
     const nodeValue = nodeResult.status === 'fulfilled' ? nodeResult.value : null;
     const nodeSkipped = Boolean(nodeValue?.skipped);
@@ -328,7 +358,7 @@ function App() {
     if (!profile) return;
     setSpeed((current) => ({ ...current, qualityRunning: true, error: '', notice: '' }));
     try {
-      const result = await callBackend(RunIPQuality, profile);
+      const result = await callSSH(RunIPQuality, profile);
       setSpeed((current) => ({ ...current, qualityRunning: false, quality: result, error: '', notice: '' }));
     } catch (error) {
       setSpeed((current) => ({ ...current, qualityRunning: false, error: String(error) }));
@@ -339,7 +369,7 @@ function App() {
     if (!profile) return;
     setMaintenance((current) => ({ ...current, running: true, error: '' }));
     try {
-      const result = await callBackend(ScanFootprint, profile);
+      const result = await callSSH(ScanFootprint, profile);
       setMaintenance({ running: false, footprint: result, logs: [], error: '' });
     } catch (error) {
       setMaintenance((current) => ({ ...current, running: false, error: String(error) }));
@@ -350,7 +380,7 @@ function App() {
     if (!profile) return;
     setMaintenance((current) => ({ ...current, running: true, error: '' }));
     try {
-      const result = await callBackend(UninstallStarter, profile, removeRuntime);
+      const result = await callSSH(UninstallStarter, profile, removeRuntime);
       setMaintenance({ running: false, footprint: result, logs: result.logs || [], error: '' });
     } catch (error) {
       setMaintenance((current) => ({ ...current, running: false, error: String(error) }));
@@ -361,7 +391,7 @@ function App() {
     if (!profile || !protocolIDs?.length) return;
     setMaintenance((current) => ({ ...current, running: true, error: '' }));
     try {
-      const result = await callBackend(CleanupSelectedFootprint, profile, protocolIDs, removeRuntime);
+      const result = await callSSH(CleanupSelectedFootprint, profile, protocolIDs, removeRuntime);
       setMaintenance({ running: false, footprint: result, logs: result.logs || [], error: '' });
     } catch (error) {
       setMaintenance((current) => ({ ...current, running: false, error: String(error) }));
@@ -488,6 +518,21 @@ function App() {
       </section>
 
       {deploying && <Overlay />}
+      {hostKeyDialog && (
+        <HostKeyDialog
+          info={hostKeyDialog}
+          onAccept={async () => {
+            try {
+              await callBackend(AcceptHostKey, hostKeyDialog.host, hostKeyDialog.port);
+              setHostKeyDialog(null);
+              if (hostKeyDialog.onRetry) await hostKeyDialog.onRetry();
+            } catch (err) {
+              setHostKeyDialog(null);
+            }
+          }}
+          onCancel={() => setHostKeyDialog(null)}
+        />
+      )}
     </main>
   );
 }
@@ -1319,6 +1364,43 @@ function Overlay() {
       <div className="loader"><i /><i /></div>
       <strong>正在准备部署</strong>
       <span>生成配置、订阅路径和远程任务</span>
+    </div>
+  );
+}
+
+function HostKeyDialog({ info, onAccept, onCancel }) {
+  return (
+    <div className="overlay" style={{ zIndex: 1000 }}>
+      <div className="panel" style={{ maxWidth: 420, padding: '1.5rem', textAlign: 'center' }}>
+        <ShieldAlert size={36} style={{ color: 'var(--amber)', marginBottom: '0.75rem' }} />
+        <strong style={{ display: 'block', fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+          首次连接服务器
+        </strong>
+        <p style={{ margin: '0.5rem 0', fontSize: '0.9rem', opacity: 0.8 }}>
+          即将信任以下服务器的 SSH 指纹，请确认是否为您的服务器：
+        </p>
+        <div style={{
+          background: 'var(--surface)', borderRadius: 8, padding: '0.75rem',
+          margin: '0.75rem 0', textAlign: 'left', fontSize: '0.85rem', fontFamily: 'monospace',
+        }}>
+          <div><strong>主机：</strong>{info.host}:{info.port}</div>
+          <div><strong>类型：</strong>{info.keyType}</div>
+          <div style={{ wordBreak: 'break-all', marginTop: 4 }}>
+            <strong>指纹：</strong>{info.fingerprint}
+          </div>
+        </div>
+        <p style={{ margin: '0.5rem 0', fontSize: '0.8rem', opacity: 0.6 }}>
+          如果您不确定此指纹，请取消操作并核实服务器身份。
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', marginTop: '1rem' }}>
+          <button className="btn secondary" onClick={onCancel} style={{ padding: '0.5rem 1.5rem' }}>
+            取消
+          </button>
+          <button className="btn primary" onClick={onAccept} style={{ padding: '0.5rem 1.5rem' }}>
+            信任并继续
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

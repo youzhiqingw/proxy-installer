@@ -32,6 +32,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/ssh"
 
+	"proxy-installer/internal/logger"
 	"proxy-installer/internal/vault"
 )
 
@@ -69,6 +70,28 @@ type App struct {
 	allowQuit      bool
 	hostKeyStore   *SSHHostKeyStore
 	vault          *vault.Vault
+	pendingHostKey *pendingHostKeyInfo
+}
+
+// pendingHostKeyInfo 暂存首次连接时的 HostKey 信息，等待用户确认
+type pendingHostKeyInfo struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"`
+	KeyBytes    []byte `json:"-"`
+}
+
+// ErrNewHostKey 表示首次连接遇到未知 HostKey，需要用户确认
+type ErrNewHostKey struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	KeyType     string `json:"keyType"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func (e *ErrNewHostKey) Error() string {
+	return fmt.Sprintf("HOSTKEY_CONFIRM:%s:%d 首次连接，请确认服务器指纹 %s (%s)", e.Host, e.Port, e.Fingerprint, e.KeyType)
 }
 
 // SSHHostKeyEntry 用于存储已知 HostKey
@@ -324,6 +347,11 @@ func appStatePath() (string, error) {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	_, _ = ensureProxyDirs()
+	root, _ := proxyDataRoot()
+	if err := logger.Init(root); err != nil {
+		fmt.Println("日志初始化失败:", err)
+	}
+	logger.Info("应用启动", "version", "1.1.0")
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {
@@ -331,8 +359,10 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	allowQuit := a.allowQuit
 	a.mu.Unlock()
 	if allowQuit {
+		logger.Info("应用退出")
 		return false
 	}
+	logger.Debug("窗口隐藏到系统托盘")
 	runtime.WindowHide(ctx)
 	return true
 }
@@ -465,30 +495,39 @@ func savedProfileCount() int {
 }
 
 func (a *App) TestConnection(profile SSHProfile) (map[string]any, error) {
+	logger.Info("测试连接", "host", profile.Host, "port", profile.Port)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("测试连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
 
 	result, err := runCommand(client, `printf 'ok:%s@%s\n' "$(whoami)" "$(hostname)"`, 10*time.Second)
 	if err != nil {
+		logger.Error("测试连接命令失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
-	return map[string]any{"ok": true, "message": strings.TrimSpace(result.Stdout)}, nil
+	msg := strings.TrimSpace(result.Stdout)
+	logger.Info("测试连接成功", "host", profile.Host, "result", msg)
+	return map[string]any{"ok": true, "message": msg}, nil
 }
 
 func (a *App) InspectVPS(profile SSHProfile) (map[string]any, error) {
+	logger.Info("VPS 体检", "host", profile.Host)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("VPS 体检连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
 
 	result, err := runCommand(client, "bash -lc "+shellQuote(detectScript()), 45*time.Second)
 	if err != nil {
+		logger.Error("VPS 体检命令失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
+	logger.Info("VPS 体检完成", "host", profile.Host)
 	return map[string]any{
 		"ok":     true,
 		"report": parseDetect(result.Stdout),
@@ -526,6 +565,7 @@ func (a *App) CheckPorts(profile SSHProfile, ports []int) (map[string]any, error
 }
 
 func (a *App) MeasureLatency(profile SSHProfile, config DeployConfig) (map[string]any, error) {
+	logger.Info("延迟测试", "host", profile.Host)
 	host := normalizeHostLiteral(profile.Host)
 	if host == "" {
 		return nil, fmt.Errorf("请输入 VPS 主机/IP")
@@ -577,8 +617,10 @@ func (a *App) MeasureLatency(profile SSHProfile, config DeployConfig) (map[strin
 }
 
 func (a *App) RunSpeedTest(profile SSHProfile) (map[string]any, error) {
+	logger.Info("开始测速", "host", profile.Host)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("测速连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
@@ -900,14 +942,17 @@ func floatFromAny(value any) float64 {
 }
 
 func (a *App) RunIPQuality(profile SSHProfile) (map[string]any, error) {
+	logger.Info("IP 质量检测", "host", profile.Host)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("IP 质量检测连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
 
 	result, err := runCommand(client, "bash -lc "+shellQuote(ipQualityScript()), 110*time.Second)
 	if err != nil {
+		logger.Error("IP 质量检测命令失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	if result.Code != 0 {
@@ -935,8 +980,10 @@ func (a *App) RunIPQuality(profile SSHProfile) (map[string]any, error) {
 }
 
 func (a *App) ScanFootprint(profile SSHProfile) (map[string]any, error) {
+	logger.Info("扫描部署残留", "host", profile.Host)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("扫描残留连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
@@ -949,8 +996,10 @@ func (a *App) ScanFootprint(profile SSHProfile) (map[string]any, error) {
 }
 
 func (a *App) UninstallStarter(profile SSHProfile, removeRuntime bool) (map[string]any, error) {
+	logger.Info("一键清理", "host", profile.Host, "removeRuntime", removeRuntime)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("一键清理连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
@@ -977,12 +1026,14 @@ func (a *App) UninstallStarter(profile SSHProfile, removeRuntime bool) (map[stri
 }
 
 func (a *App) CleanupSelectedFootprint(profile SSHProfile, protocolIDs []string, removeRuntime bool) (map[string]any, error) {
+	logger.Info("选择性清理", "host", profile.Host, "protocols", protocolIDs, "removeRuntime", removeRuntime)
 	ids := filterSupportedProtocols(protocolIDs)
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("请选择要清理的协议")
 	}
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("选择性清理连接失败", "host", profile.Host, "error", err.Error())
 		return nil, err
 	}
 	defer client.Close()
@@ -1009,8 +1060,10 @@ func (a *App) CleanupSelectedFootprint(profile SSHProfile, protocolIDs []string,
 }
 
 func (a *App) StartDeploy(profile SSHProfile, config DeployConfig) (map[string]any, error) {
+	logger.Info("开始部署", "host", profile.Host, "protocols", config.Selected, "sni", config.SNI)
 	client, err := a.connect(profile)
 	if err != nil {
+		logger.Error("部署连接失败", "host", profile.Host, "error", err.Error())
 		a.emit("error", 0, err.Error())
 		return nil, err
 	}
@@ -1068,30 +1121,59 @@ func (a *App) StartDeploy(profile SSHProfile, config DeployConfig) (map[string]a
 }
 
 // hostKeyCallback 实现 SSH HostKey 验证
-// 首次连接会提示用户确认，后续连接会自动验证
+// 首次连接返回 ErrNewHostKey 让前端弹出确认，后续连接自动验证
 func (a *App) hostKeyCallback(host string, remote net.Addr, key ssh.PublicKey) error {
-	// 获取存储的 HostKey
-	if a.hostKeyStore != nil {
-		storedKeys, found := a.hostKeyStore.Get(host, remote.(*net.TCPAddr).Port)
-		if found {
-			// 比对存储的 HostKey
-			expected := string(storedKeys)
-			actual := string(key.Marshal())
-			if expected == actual {
-				return nil // HostKey 匹配，验证通过
-			}
-			// HostKey 不匹配，可能存在中间人攻击
-			return fmt.Errorf("SSH HostKey 变更，可能存在中间人攻击风险")
-		}
-		// 未找到存储的 HostKey，首次连接，需要用户确认
-		// 由于在后端无法直接交互，这里记录 HostKey 供后续使用
-		// 实际交互式确认需要在前端实现
-		if err := a.hostKeyStore.Add(host, remote.(*net.TCPAddr).Port, key.Marshal()); err != nil {
-			return err
-		}
+	if a.hostKeyStore == nil {
+		logger.Warn("HostKeyStore 未初始化，跳过验证", "host", host)
 		return nil
 	}
-	// 兼容模式：如果 store 未初始化，记录 HostKey 但不拒绝
+	storedKeys, found := a.hostKeyStore.Get(host, remote.(*net.TCPAddr).Port)
+	if found {
+		expected := string(storedKeys)
+		actual := string(key.Marshal())
+		if expected == actual {
+			return nil
+		}
+		logger.Warn("SSH HostKey 变更", "host", host, "port", remote.(*net.TCPAddr).Port,
+			"fingerprint", ssh.FingerprintSHA256(key))
+		return fmt.Errorf("SSH HostKey 变更，可能存在中间人攻击风险")
+	}
+	// 首次连接：暂存 HostKey 信息，返回错误让前端弹出确认
+	fp := ssh.FingerprintSHA256(key)
+	port := remote.(*net.TCPAddr).Port
+	logger.Info("首次连接，等待用户确认 HostKey", "host", host, "port", port, "fingerprint", fp)
+	a.mu.Lock()
+	a.pendingHostKey = &pendingHostKeyInfo{
+		Host:        host,
+		Port:        port,
+		KeyType:     key.Type(),
+		Fingerprint: fp,
+		KeyBytes:    key.Marshal(),
+	}
+	a.mu.Unlock()
+	return &ErrNewHostKey{Host: host, Port: port, KeyType: key.Type(), Fingerprint: fp}
+}
+
+// AcceptHostKey 接受并存储待确认的 HostKey，前端在用户确认后调用
+func (a *App) AcceptHostKey(host string, port int) error {
+	a.mu.Lock()
+	pending := a.pendingHostKey
+	a.pendingHostKey = nil
+	a.mu.Unlock()
+	if pending == nil {
+		return fmt.Errorf("没有待确认的 HostKey")
+	}
+	if pending.Host != host || pending.Port != port {
+		return fmt.Errorf("HostKey 信息不匹配")
+	}
+	if a.hostKeyStore == nil {
+		return fmt.Errorf("HostKeyStore 未初始化")
+	}
+	if err := a.hostKeyStore.Add(host, port, pending.KeyBytes); err != nil {
+		logger.Error("保存 HostKey 失败", "host", host, "error", err.Error())
+		return err
+	}
+	logger.Info("用户已确认 HostKey", "host", host, "port", port, "fingerprint", pending.Fingerprint)
 	return nil
 }
 
@@ -1124,7 +1206,14 @@ func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
 		Timeout: 18 * time.Second,
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	return ssh.Dial("tcp", addr, config)
+	logger.Info("SSH 连接", "host", host, "port", port, "user", user)
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		logger.Error("SSH 连接失败", "host", host, "port", port, "error", err.Error())
+		return nil, err
+	}
+	logger.Info("SSH 连接成功", "host", host, "port", port)
+	return client, nil
 }
 
 // sanitizeLogMessage 对日志消息中的敏感信息进行脱敏处理
@@ -1148,10 +1237,17 @@ func sanitizeLogMessage(msg string) string {
 }
 
 func (a *App) emit(kind string, percent int, message string) {
+	message = sanitizeLogMessage(message)
+	if kind == "error" {
+		logger.Error("部署事件", "kind", kind, "percent", percent, "message", message)
+	} else if percent >= 95 || kind == "done" {
+		logger.Info("部署事件", "kind", kind, "percent", percent, "message", message)
+	} else {
+		logger.Debug("部署事件", "kind", kind, "percent", percent, "message", message)
+	}
 	if a.ctx == nil {
 		return
 	}
-	message = sanitizeLogMessage(message)
 	runtime.EventsEmit(a.ctx, "deploy:event", DeployEvent{Type: kind, Percent: percent, Message: message})
 }
 
