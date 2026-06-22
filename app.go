@@ -35,6 +35,34 @@ import (
 	"proxy-installer/internal/vault"
 )
 
+// ── 全局默认值常量 ──────────────────────────────────────────
+// 集中管理所有硬编码默认值，避免散落在各函数中导致修改遗漏。
+const (
+	// DefaultToken 是订阅令牌的默认值
+	DefaultToken = "starter2026"
+	// DefaultSNI 是 TLS 握手的默认 SNI 域名
+	DefaultSNI = "www.bing.com"
+	// DefaultSubRule 是订阅路由规则的默认模板
+	DefaultSubRule = "/sub/{token}/{client}"
+	// DefaultWebPort 是 Web 服务的默认监听端口
+	DefaultWebPort = 8080
+	// DefaultNodeName 是节点名称的默认回退值
+	DefaultNodeName = "starter-node"
+	// PasswordPrefix 和 PasswordSuffix 用于拼接协议密码: Pwd_{token}_2026
+	PasswordPrefix = "Pwd_"
+	PasswordSuffix = "_2026"
+)
+
+// ProtocolDefaultPorts 定义各协议的默认端口号
+var ProtocolDefaultPorts = map[string]int{
+	"vless-reality": 443,
+	"hy2":           8443,
+	"tuic":          8444,
+	"trojan":        8445,
+	"ss":            8388,
+	"vmess":         2083,
+}
+
 type App struct {
 	ctx            context.Context
 	mu             sync.Mutex
@@ -507,16 +535,16 @@ func (a *App) MeasureLatency(profile SSHProfile, config DeployConfig) (map[strin
 	}
 	config.Selected = filterSupportedProtocols(config.Selected)
 	if config.WebPort == 0 {
-		config.WebPort = 8080
+		config.WebPort = DefaultWebPort
 	}
 	if config.PublicWebPort == 0 {
 		config.PublicWebPort = config.WebPort
 	}
 	if config.Token == "" {
-		config.Token = "starter2026"
+		config.Token = DefaultToken
 	}
 	if config.Rule == "" {
-		config.Rule = "/sub/{token}/{client}"
+		config.Rule = DefaultSubRule
 	}
 
 	var items []map[string]any
@@ -626,15 +654,15 @@ func (a *App) RunNodeSpeedTest(profile SSHProfile, config DeployConfig) (map[str
 	}
 
 	if config.Token == "" {
-		config.Token = "starter2026"
+		config.Token = DefaultToken
 	}
 	if config.SNI == "" {
-		config.SNI = "www.bing.com"
+		config.SNI = DefaultSNI
 	}
 	{
-		nodeName := safeName(config.NodeName, "starter-node")
+		nodeName := safeName(config.NodeName, DefaultNodeName)
 		token := safeToken(config.Token)
-		password := "Pwd_" + token + "_2026"
+		password := PasswordPrefix + token + PasswordSuffix
 		uuid := stableUUID(token)
 		_, realityPublic, realityShortID := realityKeys(token)
 		var protocols []map[string]any
@@ -672,9 +700,9 @@ func (a *App) RunNodeSpeedTest(profile SSHProfile, config DeployConfig) (map[str
 		}, nil
 	}
 
-	nodeName := safeName(config.NodeName, "starter-node")
+	nodeName := safeName(config.NodeName, DefaultNodeName)
 	token := safeToken(config.Token)
-	password := "Pwd_" + token + "_2026"
+	password := PasswordPrefix + token + PasswordSuffix
 	uuid := stableUUID(token)
 	_, realityPublic, realityShortID := realityKeys(token)
 	proxyPort, err := getFreeLocalPort()
@@ -989,16 +1017,16 @@ func (a *App) StartDeploy(profile SSHProfile, config DeployConfig) (map[string]a
 	defer client.Close()
 
 	if config.SNI == "" {
-		config.SNI = "www.bing.com"
+		config.SNI = DefaultSNI
 	}
 	if config.WebPort == 0 {
-		config.WebPort = 8080
+		config.WebPort = DefaultWebPort
 	}
 	if config.Token == "" {
-		config.Token = "starter2026"
+		config.Token = DefaultToken
 	}
 	if config.Rule == "" {
-		config.Rule = "/sub/{token}/{client}"
+		config.Rule = DefaultSubRule
 	}
 	if len(config.Selected) == 0 {
 		config.Selected = []string{"ss"}
@@ -1791,15 +1819,15 @@ func buildDeployScript(profile SSHProfile, config DeployConfig) (string, error) 
 			return "", fmt.Errorf("%s 公网端口必须在 1-65535 之间", id)
 		}
 	}
-	nodeName := safeName(config.NodeName, "starter-node")
+	nodeName := safeName(config.NodeName, DefaultNodeName)
 	token := safeToken(config.Token)
-	sni := safeDomain(config.SNI, "www.bing.com")
-	password := "Pwd_" + token + "_2026"
+	sni := safeDomain(config.SNI, DefaultSNI)
+	password := PasswordPrefix + token + PasswordSuffix
 	uuid := stableUUID(token)
 	realityPrivate, realityPublic, realityShortID := realityKeys(token)
 	webPort := config.WebPort
 	if webPort == 0 {
-		webPort = 8080
+		webPort = DefaultWebPort
 	}
 	if config.PublicWebPort == 0 {
 		config.PublicWebPort = webPort
@@ -2096,7 +2124,7 @@ func buildServerConfig(selected []string, ports map[string]int, nodeName, passwo
 		return false
 	}
 	if has("hy2") {
-		inbounds = append(inbounds, map[string]any{"type": "hysteria2", "tag": "hy2-in", "listen": "::", "listen_port": portOrDefault(ports, "hy2", 8443), "users": []map[string]string{{"name": nodeName, "password": password}}, "tls": tls, "masquerade": "https://www.bing.com/"})
+		inbounds = append(inbounds, map[string]any{"type": "hysteria2", "tag": "hy2-in", "listen": "::", "listen_port": portOrDefault(ports, "hy2", 8443), "users": []map[string]string{{"name": nodeName, "password": password}}, "tls": tls, "masquerade": "https://" + DefaultSNI + "/"})
 	}
 	if has("vless-reality") {
 		inbounds = append(inbounds, map[string]any{
@@ -2135,7 +2163,7 @@ func buildServerConfig(selected []string, ports map[string]int, nodeName, passwo
 func buildClientFiles(host string, config DeployConfig, name, password, uuid, realityPublic, realityShortID string) map[string]string {
 	host = normalizeHostLiteral(host)
 	uriHost := formatHostForURI(host)
-	sni := safeDomain(config.SNI, "www.bing.com")
+	sni := safeDomain(config.SNI, DefaultSNI)
 	raw := []string{}
 	has := func(id string) bool {
 		for _, item := range config.Selected {
@@ -2175,7 +2203,7 @@ func buildClientFiles(host string, config DeployConfig, name, password, uuid, re
 
 func buildNginxConfig(webPort int, token, rule string) string {
 	if rule == "" {
-		rule = "/sub/{token}/{client}"
+		rule = DefaultSubRule
 	}
 	path := func(client string) string {
 		out := strings.ReplaceAll(rule, "{token}", token)
@@ -2230,22 +2258,22 @@ func buildMihomo(host string, config DeployConfig, name, password, uuid, reality
 		switch id {
 		case "hy2":
 			names = append(names, name+"-HY2")
-			proxies = append(proxies, fmt.Sprintf("  - name: '%s-HY2'\n    type: hysteria2\n    server: '%s'\n    port: %d\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "hy2", 8443), password, safeDomain(config.SNI, "www.bing.com")))
+			proxies = append(proxies, fmt.Sprintf("  - name: '%s-HY2'\n    type: hysteria2\n    server: '%s'\n    port: %d\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "hy2", 8443), password, safeDomain(config.SNI, DefaultSNI)))
 		case "vless-reality":
 			names = append(names, name+"-Reality")
-			proxies = append(proxies, fmt.Sprintf("  - name: '%s-Reality'\n    type: vless\n    server: '%s'\n    port: %d\n    uuid: %s\n    network: tcp\n    tls: true\n    udp: true\n    flow: xtls-rprx-vision\n    servername: '%s'\n    reality-opts:\n      public-key: '%s'\n      short-id: '%s'\n    client-fingerprint: chrome", name, host, publicPortOrDefault(config, "vless-reality", 443), uuid, safeDomain(config.SNI, "www.bing.com"), realityPublic, realityShortID))
+			proxies = append(proxies, fmt.Sprintf("  - name: '%s-Reality'\n    type: vless\n    server: '%s'\n    port: %d\n    uuid: %s\n    network: tcp\n    tls: true\n    udp: true\n    flow: xtls-rprx-vision\n    servername: '%s'\n    reality-opts:\n      public-key: '%s'\n      short-id: '%s'\n    client-fingerprint: chrome", name, host, publicPortOrDefault(config, "vless-reality", 443), uuid, safeDomain(config.SNI, DefaultSNI), realityPublic, realityShortID))
 		case "trojan":
 			names = append(names, name+"-Trojan")
-			proxies = append(proxies, fmt.Sprintf("  - name: '%s-Trojan'\n    type: trojan\n    server: '%s'\n    port: %d\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "trojan", 8445), password, safeDomain(config.SNI, "www.bing.com")))
+			proxies = append(proxies, fmt.Sprintf("  - name: '%s-Trojan'\n    type: trojan\n    server: '%s'\n    port: %d\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "trojan", 8445), password, safeDomain(config.SNI, DefaultSNI)))
 		case "ss":
 			names = append(names, name+"-SS")
 			proxies = append(proxies, fmt.Sprintf("  - name: '%s-SS'\n    type: ss\n    server: '%s'\n    port: %d\n    cipher: aes-256-gcm\n    password: '%s'", name, host, publicPortOrDefault(config, "ss", 8388), password))
 		case "vmess":
 			names = append(names, name+"-VMess")
-			proxies = append(proxies, fmt.Sprintf("  - name: '%s-VMess'\n    type: vmess\n    server: '%s'\n    port: %d\n    uuid: %s\n    alterId: 0\n    cipher: auto\n    tls: true\n    servername: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "vmess", 2083), uuid, safeDomain(config.SNI, "www.bing.com")))
+			proxies = append(proxies, fmt.Sprintf("  - name: '%s-VMess'\n    type: vmess\n    server: '%s'\n    port: %d\n    uuid: %s\n    alterId: 0\n    cipher: auto\n    tls: true\n    servername: '%s'\n    skip-cert-verify: true", name, host, publicPortOrDefault(config, "vmess", 2083), uuid, safeDomain(config.SNI, DefaultSNI)))
 		case "tuic":
 			names = append(names, name+"-TUIC")
-			proxies = append(proxies, fmt.Sprintf("  - name: '%s-TUIC'\n    type: tuic\n    server: '%s'\n    port: %d\n    uuid: %s\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true\n    congestion-controller: bbr\n    udp-relay-mode: native", name, host, publicPortOrDefault(config, "tuic", 8444), uuid, password, safeDomain(config.SNI, "www.bing.com")))
+			proxies = append(proxies, fmt.Sprintf("  - name: '%s-TUIC'\n    type: tuic\n    server: '%s'\n    port: %d\n    uuid: %s\n    password: '%s'\n    sni: '%s'\n    skip-cert-verify: true\n    congestion-controller: bbr\n    udp-relay-mode: native", name, host, publicPortOrDefault(config, "tuic", 8444), uuid, password, safeDomain(config.SNI, DefaultSNI)))
 		}
 	}
 	var groupItems []string
@@ -2325,17 +2353,17 @@ func buildSingboxClientWithListen(host string, config DeployConfig, name, passwo
 	for _, id := range config.Selected {
 		switch id {
 		case "hy2":
-			outbounds = append(outbounds, map[string]any{"type": "hysteria2", "tag": name + "-HY2", "server": host, "server_port": publicPortOrDefault(config, "hy2", 8443), "password": password, "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, "www.bing.com"), "insecure": true}})
+			outbounds = append(outbounds, map[string]any{"type": "hysteria2", "tag": name + "-HY2", "server": host, "server_port": publicPortOrDefault(config, "hy2", 8443), "password": password, "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, DefaultSNI), "insecure": true}})
 		case "vless-reality":
-			outbounds = append(outbounds, map[string]any{"type": "vless", "tag": name + "-Reality", "server": host, "server_port": publicPortOrDefault(config, "vless-reality", 443), "uuid": uuid, "flow": "xtls-rprx-vision", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, "www.bing.com"), "utls": map[string]any{"enabled": true, "fingerprint": "chrome"}, "reality": map[string]any{"enabled": true, "public_key": realityPublic, "short_id": realityShortID}}})
+			outbounds = append(outbounds, map[string]any{"type": "vless", "tag": name + "-Reality", "server": host, "server_port": publicPortOrDefault(config, "vless-reality", 443), "uuid": uuid, "flow": "xtls-rprx-vision", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, DefaultSNI), "utls": map[string]any{"enabled": true, "fingerprint": "chrome"}, "reality": map[string]any{"enabled": true, "public_key": realityPublic, "short_id": realityShortID}}})
 		case "trojan":
-			outbounds = append(outbounds, map[string]any{"type": "trojan", "tag": name + "-Trojan", "server": host, "server_port": publicPortOrDefault(config, "trojan", 8445), "password": password, "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, "www.bing.com"), "insecure": true}})
+			outbounds = append(outbounds, map[string]any{"type": "trojan", "tag": name + "-Trojan", "server": host, "server_port": publicPortOrDefault(config, "trojan", 8445), "password": password, "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, DefaultSNI), "insecure": true}})
 		case "ss":
 			outbounds = append(outbounds, map[string]any{"type": "shadowsocks", "tag": name + "-SS", "server": host, "server_port": publicPortOrDefault(config, "ss", 8388), "method": "aes-256-gcm", "password": password})
 		case "vmess":
-			outbounds = append(outbounds, map[string]any{"type": "vmess", "tag": name + "-VMess", "server": host, "server_port": publicPortOrDefault(config, "vmess", 2083), "uuid": uuid, "security": "auto", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, "www.bing.com"), "insecure": true}})
+			outbounds = append(outbounds, map[string]any{"type": "vmess", "tag": name + "-VMess", "server": host, "server_port": publicPortOrDefault(config, "vmess", 2083), "uuid": uuid, "security": "auto", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, DefaultSNI), "insecure": true}})
 		case "tuic":
-			outbounds = append(outbounds, map[string]any{"type": "tuic", "tag": name + "-TUIC", "server": host, "server_port": publicPortOrDefault(config, "tuic", 8444), "uuid": uuid, "password": password, "congestion_control": "bbr", "udp_relay_mode": "native", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, "www.bing.com"), "insecure": true}})
+			outbounds = append(outbounds, map[string]any{"type": "tuic", "tag": name + "-TUIC", "server": host, "server_port": publicPortOrDefault(config, "tuic", 8444), "uuid": uuid, "password": password, "congestion_control": "bbr", "udp_relay_mode": "native", "tls": map[string]any{"enabled": true, "server_name": safeDomain(config.SNI, DefaultSNI), "insecure": true}})
 		}
 	}
 	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": "direct"})
@@ -3584,7 +3612,7 @@ func buildSubscriptionURL(host string, config DeployConfig, client string) strin
 	token := safeToken(config.Token)
 	rule := config.Rule
 	if rule == "" {
-		rule = "/sub/{token}/{client}"
+		rule = DefaultSubRule
 	}
 	path := strings.ReplaceAll(rule, "{token}", token)
 	path = strings.ReplaceAll(path, "{client}", client)
@@ -3689,7 +3717,7 @@ func publicWebPortOrDefault(config DeployConfig) int {
 	if config.WebPort > 0 {
 		return config.WebPort
 	}
-	return 8080
+	return DefaultWebPort
 }
 func selectedPorts(selected []string, ports map[string]int) []int {
 	var out []int
@@ -3704,7 +3732,7 @@ func selectedPorts(selected []string, ports map[string]int) []int {
 	return out
 }
 func protocolDefaults() map[string]int {
-	return map[string]int{"vless-reality": 443, "hy2": 8443, "tuic": 8444, "trojan": 8445, "ss": 8388, "vmess": 2083}
+	return ProtocolDefaultPorts
 }
 func filterSupportedProtocols(selected []string) []string {
 	defaults := protocolDefaults()
@@ -3736,7 +3764,7 @@ func safeToken(s string) string {
 		}
 	}
 	if out == "" {
-		return "starter2026"
+		return DefaultToken
 	}
 	return out
 }
