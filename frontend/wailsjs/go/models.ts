@@ -96,7 +96,7 @@ export namespace config {
 
 }
 
-export namespace main {
+export namespace cost {
 	
 	export class VPSInstance {
 	    id: string;
