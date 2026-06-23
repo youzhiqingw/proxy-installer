@@ -37,6 +37,9 @@ export namespace config {
 	    user: string;
 	    username: string;
 	    port: number;
+	    auth_mode?: string;
+	    private_key_content?: string;
+	    key_passphrase_enc?: string;
 	    password_encrypted?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -51,6 +54,9 @@ export namespace config {
 	        this.user = source["user"];
 	        this.username = source["username"];
 	        this.port = source["port"];
+	        this.auth_mode = source["auth_mode"];
+	        this.private_key_content = source["private_key_content"];
+	        this.key_passphrase_enc = source["key_passphrase_enc"];
 	        this.password_encrypted = source["password_encrypted"];
 	    }
 	}

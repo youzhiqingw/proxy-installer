@@ -14,6 +14,7 @@ import { protocols, defaultPorts } from '../utils/constants';
 import { externalPort, externalWebPort } from '../utils/format';
 import { PanelTitle, Field } from './ui/UIComponents';
 import { ProtocolGlyph } from './ui/Icons';
+import RuleEnginePanel from './deploy/RuleEnginePanel';
 
 function Deploy({ profiles, config, setConfig, subscriptions, runDeploy, checkPorts, setActiveTab }) {
   const selectedProfile = profiles.find((item) => item.id === config.profileId) || profiles[0];
@@ -93,6 +94,7 @@ function Deploy({ profiles, config, setConfig, subscriptions, runDeploy, checkPo
               <Field label="路径规则"><input value={config.rule} onChange={(e) => setConfig({ ...config, rule: e.target.value })} /></Field>
               <Field label="Reality / TLS SNI"><input value={config.sni} onChange={(e) => setConfig({ ...config, sni: e.target.value })} /></Field>
             </div>
+            <RuleEnginePanel />
           </div>
         )}
 

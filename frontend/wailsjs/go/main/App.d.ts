@@ -5,6 +5,8 @@ import {cost} from '../models';
 
 export function AcceptHostKey(arg1:string,arg2:number):Promise<void>;
 
+export function BuildRoutingRules(arg1:Array<string>,arg2:Array<string>,arg3:string):Promise<string>;
+
 export function CheckPorts(arg1:config.SSHProfile,arg2:Array<number>):Promise<Record<string, any>>;
 
 export function CleanupSelectedFootprint(arg1:config.SSHProfile,arg2:Array<string>,arg3:boolean):Promise<Record<string, any>>;

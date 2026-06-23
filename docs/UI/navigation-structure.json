@@ -1,0 +1,376 @@
+{
+  "name": "Proxy Installer - 导航栏功能结构",
+  "version": "1.0.0",
+  "description": "项目导航栏和对应功能的可视化结构",
+  "sidebar": {
+    "name": "主导航栏",
+    "location": "frontend/src/App.jsx",
+    "component": "sidebar > .side-nav",
+    "tabs": [
+      {
+        "id": "dashboard",
+        "label": "仪表盘",
+        "desc": "状态总览",
+        "icon": "LayoutDashboard",
+        "component": "frontend/src/components/Dashboard.jsx",
+        "functions": [
+          {
+            "name": "StatCard 统计卡片",
+            "description": "6 个核心指标展示",
+            "metrics": ["VPS 数量", "系统状态", "链路延迟", "速度损耗", "IP 纯净度", "部署状态"]
+          },
+          {
+            "name": "VPS 状态矩阵",
+            "description": "健康度网格展示",
+            "metrics": ["CPU 核数", "内存", "硬盘", "网络摘要", "IPv6", "网络栈类型", "虚拟化", "防火墙"]
+          },
+          {
+            "name": "快捷操作",
+            "actions": ["新建部署", "打开测速中心", "查看订阅"]
+          },
+          {
+            "name": "配置概览表格",
+            "columns": ["名称", "地址", "状态", "系统", "NAT"]
+          }
+        ],
+        "dataSources": ["profiles", "profile.report", "speed", "progress"]
+      },
+      {
+        "id": "cost",
+        "label": "成本中心",
+        "desc": "厂商与账单",
+        "icon": "DollarSign",
+        "component": "frontend/src/components/CostCenter.jsx",
+        "functions": [
+          {
+            "name": "VPS 实例管理",
+            "description": "添加/编辑/删除 VPS 实例",
+            "fields": ["厂商", "实例 ID", "IP 地址", "操作系统", "CPU", "内存", "硬盘", "带宽", "流量", "价格", "货币", "周期", "到期日"]
+          },
+          {
+            "name": "成本统计",
+            "metrics": ["月度支出", "年度支出", "实例总数", "即将到期"]
+          },
+          {
+            "name": "到期提醒",
+            "description": "显示即将到期的 VPS 实例"
+          },
+          {
+            "name": "实例状态",
+            "statuses": ["正常", "即将到期", "已过期"]
+          }
+        ],
+        "dataSources": ["costInstances", "profiles"]
+      },
+      {
+        "id": "configs",
+        "label": "VPS 管理",
+        "desc": "SSH 与体检",
+        "icon": "Server",
+        "component": "frontend/src/components/Configs.jsx",
+        "functions": [
+          {
+            "name": "添加 SSH 表单",
+            "fields": ["名称", "主机/IP", "用户", "端口", "密码"]
+          },
+          {
+            "name": "VPS 列表",
+            "actions": ["选择", "连接测试", "体检", "删除"]
+          },
+          {
+            "name": "体检详情",
+            "details": ["系统", "内核", "CPU 型号", "内存", "硬盘", "公网 IP/NAT", "虚拟化", "工具状态"]
+          }
+        ],
+        "backendBindings": ["TestConnection", "InspectVPS", "SaveAppState"],
+        "dataSources": ["profiles", "draft", "selected.report"]
+      },
+      {
+        "id": "deploy",
+        "label": "节点部署",
+        "desc": "协议与订阅",
+        "icon": "Rocket",
+        "component": "frontend/src/components/Deploy.jsx",
+        "functions": [
+          {
+            "name": "部署配置",
+            "fields": ["选择 VPS", "节点名称"]
+          },
+          {
+            "name": "协议选择",
+            "protocols": ["VLESS Reality", "Hysteria2", "TUIC", "Trojan", "Shadowsocks", "VMess"],
+            "description": "6 种协议卡片，可多选"
+          },
+          {
+            "name": "端口映射配置",
+            "fields": ["内部端口", "公网端口"],
+            "description": "每个选中协议显示一行"
+          },
+          {
+            "name": "高级设置",
+            "fields": ["订阅内部端口", "订阅公网端口", "订阅 Token", "路径规则", "Reality/TLS SNI"]
+          },
+          {
+            "name": "部署操作",
+            "actions": ["检查内部端口", "开始部署", "打开测速中心"]
+          }
+        ],
+        "backendBindings": ["StartDeploy", "CheckPorts"],
+        "dataSources": ["profiles", "deployConfig", "subscriptions"]
+      },
+      {
+        "id": "speed",
+        "label": "测速中心",
+        "desc": "延迟与出口",
+        "icon": "Gauge",
+        "component": "frontend/src/components/SpeedCenter.jsx",
+        "functions": [
+          {
+            "name": "测速任务",
+            "actions": ["链路延迟", "速度损耗对比", "仅测 VPS 出口", "IP 纯净度"],
+            "targetInfo": ["目标 VPS", "端口映射", "订阅映射"]
+          },
+          {
+            "name": "速度损耗对比",
+            "metrics": ["VPS 直连出口", "通过节点代理", "速度损耗百分比"]
+          },
+          {
+            "name": "按协议测速",
+            "description": "每个协议的独立测速结果",
+            "metrics": ["延迟", "下载速度", "损耗百分比"]
+          },
+          {
+            "name": "IP 纯净度检测",
+            "sections": ["基础信息", "类型特征", "风险信号", "流媒体/AI 服务", "邮件连通性", "DNSBL 黑名单"]
+          }
+        ],
+        "backendBindings": ["MeasureLatency", "RunSpeedTest", "RunNodeSpeedTest", "RunIPQuality"],
+        "dataSources": ["profile", "deployConfig", "speed"]
+      },
+      {
+        "id": "maintenance",
+        "label": "维护清理",
+        "desc": "印记与卸载",
+        "icon": "Trash2",
+        "component": "frontend/src/components/Maintenance.jsx",
+        "functions": [
+          {
+            "name": "印记扫描",
+            "description": "扫描 VPS 上的部署残留",
+            "items": ["核心配置目录", "订阅文件目录", "nginx 配置", "sing-box 配置", "systemd 服务", "临时日志"]
+          },
+          {
+            "name": "清理操作",
+            "actions": ["清理本工具", "深度清理 sing-box", "清理选中协议", "清理选中并移除运行时"]
+          },
+          {
+            "name": "协议印记列表",
+            "description": "显示每个协议的配置和订阅状态",
+            "status": ["complete", "partial", "missing"]
+          },
+          {
+            "name": "服务状态表格",
+            "columns": ["服务", "运行状态", "开机启动"]
+          }
+        ],
+        "backendBindings": ["ScanFootprint", "UninstallStarter", "CleanupSelectedFootprint"],
+        "dataSources": ["profile", "maintenance.footprint"]
+      },
+      {
+        "id": "progress",
+        "label": "进度日志",
+        "desc": "部署事件",
+        "icon": "TerminalSquare",
+        "component": "frontend/src/components/Progress.jsx",
+        "functions": [
+          {
+            "name": "部署进度条",
+            "display": ["进度百分比", "当前状态消息", "状态指示器"]
+          },
+          {
+            "name": "日志操作",
+            "actions": ["查看/隐藏日志", "复制日志"]
+          },
+          {
+            "name": "日志事件列表",
+            "format": "[类型] 消息内容",
+            "types": ["progress", "log", "error", "done"]
+          }
+        ],
+        "dataSources": ["progress"]
+      },
+      {
+        "id": "result",
+        "label": "节点信息",
+        "desc": "客户端订阅",
+        "icon": "Link2",
+        "component": "frontend/src/components/Result.jsx",
+        "functions": [
+          {
+            "name": "客户端切换",
+            "clients": ["Shadowrocket", "Clash Meta", "V2rayNG", "sing-box"]
+          },
+          {
+            "name": "订阅 URL 展示",
+            "actions": ["复制订阅 URL"]
+          },
+          {
+            "name": "QR 码生成",
+            "description": "当前客户端订阅 URL 的二维码"
+          },
+          {
+            "name": "最近性能",
+            "metrics": ["最近延迟", "出口下载速度"]
+          }
+        ],
+        "dataSources": ["subscriptions", "activeClient", "speed"]
+      }
+    ]
+  },
+  "backendFlow": {
+    "description": "后端 Wails 绑定方法流程",
+    "bindings": [
+      {
+        "name": "LoadAppState",
+        "description": "加载应用状态（profiles, deployConfig, activeClient）",
+        "return": "state.json 内容"
+      },
+      {
+        "name": "SaveAppState",
+        "description": "保存应用状态（AES-GCM 加密密码）",
+        "params": ["profiles", "deployConfig", "activeClient"]
+      },
+      {
+        "name": "TestConnection",
+        "description": "SSH 连接测试",
+        "flow": ["connect()", "执行 whoami/hostname", "返回结果"]
+      },
+      {
+        "name": "InspectVPS",
+        "description": "VPS 系统检测",
+        "flow": ["connect()", "执行 detectScript()", "解析报告"]
+      },
+      {
+        "name": "CheckPorts",
+        "description": "检查端口占用状态",
+        "params": ["host", "ports[]"]
+      },
+      {
+        "name": "StartDeploy",
+        "description": "开始部署代理节点",
+        "flow": ["connect()", "deploy.Deploy()", "BuildDeployScript()", "远程执行", "事件推送"]
+      },
+      {
+        "name": "MeasureLatency",
+        "description": "测量链路延迟",
+        "flow": ["TCP 端口探测", "HTTP 订阅 URL 探测"]
+      },
+      {
+        "name": "RunSpeedTest",
+        "description": "VPS 出口测速",
+        "flow": ["SSH 执行 curl speed.cloudflare.com"]
+      },
+      {
+        "name": "RunNodeSpeedTest",
+        "description": "通过节点代理测速",
+        "flow": ["本地 sing-box", "配置客户端", "代理测速", "对比"]
+      },
+      {
+        "name": "RunIPQuality",
+        "description": "IP 纯净度检测",
+        "flow": ["SSH 执行检测脚本", "多源 API 查询", "构建报告"]
+      },
+      {
+        "name": "ScanFootprint",
+        "description": "扫描部署残留",
+        "flow": ["SSH 执行扫描脚本", "解析结果"]
+      },
+      {
+        "name": "CleanupSelectedFootprint",
+        "description": "清理选中协议",
+        "params": ["host", "protocolIDs[]", "removeRuntime"]
+      },
+      {
+        "name": "UninstallStarter",
+        "description": "一键卸载",
+        "params": ["host", "removeRuntime"]
+      },
+      {
+        "name": "AcceptHostKey",
+        "description": "接受并存储 SSH HostKey",
+        "params": ["host", "port"]
+      },
+      {
+        "name": "GetCostV2Instances",
+        "description": "获取成本中心 V2 实例列表"
+      },
+      {
+        "name": "SaveCostVPSInstance",
+        "description": "保存成本中心实例"
+      },
+      {
+        "name": "DeleteCostVPSInstance",
+        "description": "删除成本中心实例"
+      }
+    ]
+  },
+  "internalPackages": {
+    "description": "内部包结构",
+    "packages": [
+      {
+        "name": "internal/config",
+        "description": "共享类型定义",
+        "types": ["SSHProfile", "DeployConfig", "DeployEvent", "CommandResult", "AppState"]
+      },
+      {
+        "name": "internal/sshclient",
+        "description": "SSH 连接封装",
+        "functions": ["Connect", "RunCommand", "RunStreaming", "HostKeyCallback", "AcceptHostKey"]
+      },
+      {
+        "name": "internal/deploy",
+        "description": "部署脚本和配置生成",
+        "functions": ["Deploy", "BuildDeployScript", "BuildServerConfig", "BuildClientFiles"]
+      },
+      {
+        "name": "internal/singbox",
+        "description": "sing-box 二进制管理",
+        "functions": ["EnsureLocalSingBox", "InstallSingBoxViaUpload", "DownloadLinuxSingBox", "VerifySHASums"]
+      },
+      {
+        "name": "internal/speedtest",
+        "description": "测速功能",
+        "functions": ["MeasureLatency", "RunSpeedTest", "RunNodeSpeedTest"]
+      },
+      {
+        "name": "internal/quality",
+        "description": "IP 质量检测",
+        "functions": ["RunIPQuality", "ParseIPQualitySources", "BuildQualityReport"]
+      },
+      {
+        "name": "internal/vault",
+        "description": "密码加密存储",
+        "functions": ["NewVault", "Encrypt", "Decrypt", "MigrateAutoKeyToKeyring"]
+      },
+      {
+        "name": "internal/logger",
+        "description": "结构化日志",
+        "functions": ["Init", "Info", "Warn", "Error", "Debug"]
+      },
+      {
+        "name": "internal/cost",
+        "description": "成本跟踪",
+        "functions": ["GetCostV2Instances", "SaveCostVPSInstance", "DeleteCostVPSInstance"]
+      },
+      {
+        "name": "internal/errors",
+        "description": "错误类型定义",
+        "types": ["AppError", "SSHError", "DeployError"]
+      },
+      {
+        "name": "internal/util",
+        "description": "通用工具函数"
+      }
+    ]
+  }
+}

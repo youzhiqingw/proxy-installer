@@ -1,0 +1,287 @@
+{
+  "name": "Proxy Installer - 导航栏功能结构（代码校验版）",
+  "version": "2026-06-23-corrected",
+  "description": "以当前 frontend/src/App.jsx、frontend/src/utils/constants.js、app.go 实际代码为准的导航与绑定映射",
+  "sidebar": {
+    "name": "主导航栏",
+    "location": "frontend/src/App.jsx",
+    "component": "sidebar > .side-nav",
+    "tabs": [
+      {
+        "id": "dashboard",
+        "label": "仪表盘",
+        "desc": "状态总览",
+        "icon": "LayoutDashboard",
+        "component": "frontend/src/components/Dashboard.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "cost",
+        "label": "成本中心",
+        "desc": "厂商与账单",
+        "icon": "DollarSign",
+        "component": "frontend/src/components/CostCenter.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "configs",
+        "label": "VPS 管理",
+        "desc": "SSH 与体检",
+        "icon": "Server",
+        "component": "frontend/src/components/Configs.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "deploy",
+        "label": "节点部署",
+        "desc": "协议与订阅",
+        "icon": "Rocket",
+        "component": "frontend/src/components/Deploy.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "speed",
+        "label": "测速中心",
+        "desc": "延迟与出口",
+        "icon": "Gauge",
+        "component": "frontend/src/components/SpeedCenter.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "maintenance",
+        "label": "维护清理",
+        "desc": "印记与卸载",
+        "icon": "Trash2",
+        "component": "frontend/src/components/Maintenance.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "progress",
+        "label": "进度日志",
+        "desc": "部署事件",
+        "icon": "TerminalSquare",
+        "component": "frontend/src/components/Progress.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "result",
+        "label": "节点信息",
+        "desc": "客户端订阅",
+        "icon": "Link2",
+        "component": "frontend/src/components/Result.jsx",
+        "status": "implemented"
+      },
+      {
+        "id": "service-check",
+        "label": "服务检测",
+        "desc": "AI/解锁检测",
+        "icon": "ListChecks",
+        "component": "frontend/src/components/ServiceCheck.jsx",
+        "status": "planned"
+      }
+    ]
+  },
+  "backendFlow": {
+    "description": "Wails 绑定方法（当前实际代码）",
+    "bindings": [
+      {
+        "name": "LoadAppState",
+        "description": "加载应用状态（profiles, deployConfig, activeClient）",
+        "return": "state.json 内容"
+      },
+      {
+        "name": "SaveAppState",
+        "description": "保存应用状态（AES-GCM 加密密码）",
+        "params": ["state"]
+      },
+      {
+        "name": "TestConnection",
+        "description": "SSH 连接测试",
+        "flow": ["connect()", "执行 whoami/hostname", "返回结果"]
+      },
+      {
+        "name": "InspectVPS",
+        "description": "VPS 系统体检",
+        "flow": ["connect()", "执行体检脚本", "解析报告"]
+      },
+      {
+        "name": "CheckPorts",
+        "description": "检查端口占用状态",
+        "params": ["profile", "ports[]"]
+      },
+      {
+        "name": "StartDeploy",
+        "description": "开始部署代理节点",
+        "flow": ["connect()", "deploy.Deploy()", "BuildDeployScript()", "远程执行", "事件推送"]
+      },
+      {
+        "name": "MeasureLatency",
+        "description": "测量链路延迟",
+        "flow": ["TCP 端口探测", "HTTP 订阅 URL 探测"]
+      },
+      {
+        "name": "RunSpeedTest",
+        "description": "VPS 出口测速",
+        "flow": ["SSH 执行 curl speed.cloudflare.com"]
+      },
+      {
+        "name": "RunNodeSpeedTest",
+        "description": "通过节点代理测速",
+        "flow": ["本地 sing-box", "配置客户端", "代理测速", "对比"]
+      },
+      {
+        "name": "RunIPQuality",
+        "description": "IP 纯净度检测",
+        "flow": ["SSH 执行检测脚本", "多源 API 查询", "构建报告"]
+      },
+      {
+        "name": "ScanFootprint",
+        "description": "扫描部署残留",
+        "flow": ["SSH 执行扫描脚本", "解析结果"]
+      },
+      {
+        "name": "CleanupSelectedFootprint",
+        "description": "清理选中协议",
+        "params": ["profile", "protocolIDs[]", "removeRuntime"]
+      },
+      {
+        "name": "UninstallStarter",
+        "description": "一键卸载",
+        "params": ["profile", "removeRuntime"]
+      },
+      {
+        "name": "AcceptHostKey",
+        "description": "接受并存储 SSH HostKey",
+        "params": ["host", "port"]
+      },
+      {
+        "name": "GetCostV2Instances",
+        "description": "获取成本中心实例列表"
+      },
+      {
+        "name": "GetCostV2Summary",
+        "description": "获取成本中心汇总"
+      },
+      {
+        "name": "SaveCostVPSInstance",
+        "description": "保存成本中心实例"
+      },
+      {
+        "name": "DeleteCostVPSInstance",
+        "description": "删除成本中心实例"
+      },
+      {
+        "name": "LinkVPSProfile",
+        "description": "关联成本实例与 VPS 档案"
+      }
+    ]
+  },
+  "plannedBindings": [
+    {
+      "name": "ExportAppStateBackup",
+        "description": "导出当前应用状态备份"
+    },
+    {
+      "name": "ImportAppStateBackup",
+      "description": "导入应用状态备份"
+    },
+    {
+      "name": "BuildRoutingRules",
+      "description": "生成 sing-box 路由规则 JSON 片段"
+    },
+    {
+      "name": "RunAIServiceCheck",
+      "description": "AI 服务可达性探测"
+    },
+    {
+      "name": "RunUnlockCheck",
+      "description": "流媒体解锁状态探测"
+    },
+    {
+      "name": "DiagnoseDeployLog",
+      "description": "基于错误库诊断部署日志"
+    },
+    {
+      "name": "SuggestProfileTags",
+      "description": "推荐 VPS 标签"
+    },
+    {
+      "name": "SetProfileTags",
+      "description": "保存 VPS 标签"
+    },
+    {
+      "name": "SyncRuleResource",
+      "description": "同步规则资源"
+    },
+    {
+      "name": "ListRuleResources",
+      "description": "列出规则资源"
+    },
+    {
+      "name": "RemoveRuleResource",
+      "description": "删除规则资源"
+    },
+    {
+      "name": "BuildAggregatedSubscription",
+      "description": "生成聚合订阅"
+    },
+    {
+      "name": "SetupWarpOutbound",
+      "description": "安装/配置 WARP 出站"
+    },
+    {
+      "name": "GetWarpStatus",
+      "description": "查询 WARP 连接状态"
+    }
+  ],
+  "internalPackages": {
+    "description": "当前后端内部包结构",
+    "packages": [
+      {
+        "name": "internal/config",
+        "description": "共享类型定义",
+        "types": ["SSHProfile", "DeployConfig", "DeployEvent", "CommandResult", "AppState"]
+      },
+      {
+        "name": "internal/sshclient",
+        "description": "SSH 连接封装",
+        "functions": ["Connect", "RunCommand", "RunStreaming", "HostKeyCallback", "AcceptHostKey"]
+      },
+      {
+        "name": "internal/deploy",
+        "description": "部署脚本和配置生成",
+        "functions": ["Deploy", "BuildDeployScript", "BuildServerConfig", "BuildClientFiles"]
+      },
+      {
+        "name": "internal/singbox",
+        "description": "sing-box 二进制管理",
+        "functions": ["EnsureLocalSingBox", "InstallSingBoxViaUpload", "DownloadLinuxSingBox", "VerifySHASums"]
+      },
+      {
+        "name": "internal/speedtest",
+        "description": "延迟与测速",
+        "functions": ["MeasureLatency", "RunSpeedTest", "RunNodeSpeedTest"]
+      },
+      {
+        "name": "internal/quality",
+        "description": "IP 质量与来源解析",
+        "functions": ["RunIPQuality", "ParseSources", "BuildReport"]
+      },
+      {
+        "name": "internal/vault",
+        "description": "密码加密与密钥管理",
+        "functions": ["NewVault", "Encrypt", "Decrypt"]
+      },
+      {
+        "name": "internal/logger",
+        "description": "日志输出",
+        "functions": ["Init", "Info", "Warn", "Error", "Debug"]
+      },
+      {
+        "name": "internal/cost",
+        "description": "VPS 续费成本管理",
+        "functions": ["LoadCostV2", "SaveCostV2", "GetCostV2Instances", "SaveCostVPSInstance", "DeleteCostVPSInstance", "GetCostV2Summary", "LinkVPSProfile"]
+      }
+    ]
+  }
+}

@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Proxy Installer is a Windows desktop application built with Wails (Go + React) for deploying proxy nodes on Linux VPS servers. It provides a GUI for SSH-based VPS management and proxy protocol deployment (Hysteria2, VLESS Reality, VMess, Trojan, Shadowsocks).
 
 **Tech Stack** (FROZEN - do not propose changes):
-- **Frontend**: React 19 + Wails v2, single-file `App.jsx`, useState + Wails Events, inline styles
+- **Frontend**: React 19 + Wails v2, `App.jsx` shell + `frontend/src/components/*.jsx` page components + `frontend/src/components/ui/*.jsx` shared UI + `frontend/src/utils/*.js` helpers + `frontend/src/hooks/*.js` backend wrappers, useState + Wails Events, inline styles
 - **Backend**: Go 1.23.0, Wails v2, single monolithic app
 - **Configuration**: JSON file storage (no database)
 - **Deployment**: sing-box command-line
@@ -51,7 +51,11 @@ go test -run TestIPv6HostFormatting ./...
 - All backend methods bound to frontend via Wails (e.g., `LoadAppState`, `TestConnection`, `StartDeploy`)
 
 **Frontend (React)**:
-- `frontend/src/App.jsx`: Single-file React application with all UI components (DO NOT split)
+- `frontend/src/App.jsx`: Main app shell with tab routing
+- `frontend/src/components/*.jsx`: Page components (`Dashboard`, `CostCenter`, `Configs`, `Deploy`, `SpeedCenter`, `Maintenance`, `Progress`, `Result`)
+- `frontend/src/components/ui/*.jsx`: Shared UI components (`Field`, `StatCard`, `PanelTitle`, `Icons`)
+- `frontend/src/utils/*.js`: Formatting, constants, protocol definitions
+- `frontend/src/hooks/*.js`: Backend call wrappers
 - `frontend/src/main.jsx`: React entry point
 - `frontend/wailsjs/`: Auto-generated Wails bindings for Go backend calls
 
@@ -76,6 +80,7 @@ go test -run TestIPv6HostFormatting ./...
 | `speed` | 测速中心 | 延迟与出口 |
 | `maintenance` | 维护清理 | 印记与卸载 |
 | `progress` | 进度日志 | 部署事件 |
+| `cost` | 成本中心 | 厂商与账单 |
 | `result` | 节点信息 | 客户端订阅 |
 
 ---
@@ -90,8 +95,6 @@ go test -run TestIPv6HostFormatting ./...
 
 **FORBIDDEN**:
 - ❌ Refactoring existing architecture
-- ❌ Splitting `App.jsx` into components
-- ❌ Changing from single-file to multi-component structure
 - ❌ Introducing Redux/Zustand/MobX or any state management library
 - ❌ Replacing React 19 or Wails v2
 - ❌ Adding databases (SQLite, MySQL, etc.)
@@ -100,7 +103,7 @@ go test -run TestIPv6HostFormatting ./...
 - ❌ Adding new Go or NPM dependencies
 
 **ALLOWED**:
-- ✅ Add new Tab/Dialog/Panel within `App.jsx`
+- ✅ Add new tab/page component in `frontend/src/components/*.jsx`
 - ✅ Add new Wails binding methods in `app.go`
 - ✅ Add new protocol templates in `app.go`
 - ✅ Extend existing struct fields with `omitempty`
@@ -184,6 +187,11 @@ import {
   ScanFootprint,
   StartDeploy,
   TestConnection,
+  GetCostV2Instances,
+  SaveCostVPSInstance,
+  DeleteCostVPSInstance,
+  GetCostV2Summary,
+  LinkVPSProfile,
 } from '../wailsjs/go/main/App';
 ```
 
@@ -203,6 +211,11 @@ The full list of Wails bindings:
 | `ScanFootprint` | `host` | Scan VPS for proxy installer artifacts |
 | `StartDeploy` | `host, config` | Start proxy deployment |
 | `TestConnection` | `host` | Test SSH connection |
+| `GetCostV2Instances` | - | Load cost center instances |
+| `SaveCostVPSInstance` | `instance` | Save or update a VPS cost instance |
+| `DeleteCostVPSInstance` | `id` | Delete a VPS cost instance |
+| `GetCostV2Summary` | - | Get cost summary by currency |
+| `LinkVPSProfile` | `instanceID, profileID` | Link a cost instance to an SSH profile |
 
 ---
 

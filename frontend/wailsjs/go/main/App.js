@@ -6,6 +6,10 @@ export function AcceptHostKey(arg1, arg2) {
   return window['go']['main']['App']['AcceptHostKey'](arg1, arg2);
 }
 
+export function BuildRoutingRules(arg1, arg2, arg3) {
+  return window['go']['main']['App']['BuildRoutingRules'](arg1, arg2, arg3);
+}
+
 export function CheckPorts(arg1, arg2) {
   return window['go']['main']['App']['CheckPorts'](arg1, arg2);
 }
