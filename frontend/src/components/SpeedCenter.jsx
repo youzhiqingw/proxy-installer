@@ -153,7 +153,7 @@ function QualityPanel({ quality }) {
       <div className="quality-empty">
         <ShieldAlert size={28} />
         <strong>未检测</strong>
-        <span>运行 IP 纯净度后分别展示 IPPure、ping0、IPLark 三个站点的返回结果。</span>
+        <span>运行 IP 纯净度后分别展示 IPPure、IPLark 两个站点的返回结果。</span>
       </div>
     );
   }

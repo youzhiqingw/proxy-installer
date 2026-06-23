@@ -30,6 +30,10 @@ export function GetCostV2Summary() {
   return window['go']['main']['App']['GetCostV2Summary']();
 }
 
+export function GetProfileCredentials(arg1) {
+  return window['go']['main']['App']['GetProfileCredentials'](arg1);
+}
+
 export function InspectVPS(arg1) {
   return window['go']['main']['App']['InspectVPS'](arg1);
 }

@@ -18,9 +18,12 @@ type QualityField struct {
 	Key   string
 }
 
+// enablePing0Check 控制是否启用 ping0.cc IP 检测源（隐私原因默认关闭，恢复时改为 true）
+const enablePing0Check = false
+
 // IPQualityScript 返回用于远程执行的 IP 质量检测 bash 脚本
 func IPQualityScript() string {
-	return `
+	script := `
 set +e
 if ! command -v curl >/dev/null 2>&1; then printf 'error=missing curl\n'; exit 3; fi
 if ! command -v base64 >/dev/null 2>&1; then printf 'error=missing base64\n'; exit 4; fi
@@ -129,8 +132,12 @@ fetch_json "12" "ipinfo" "https://ipinfo.io/json" &
 fetch_json "13" "ipwhois" "https://ipwho.is/" &
 fetch_json "14" "ipapi" "https://ipapi.co/json/" &
 fetch_json "15" "dbip" "https://api.db-ip.com/v2/free/self" &
-fetch_text "20" "ping0" "https://ipv4.ping0.cc/geo" "https://ipv6.ping0.cc/geo" "https://ping0.cc/geo" &
-fetch_text "30" "iplark" "https://iplark.com/cdn-cgi/trace" "https://iplark.com" &
+`
+	if enablePing0Check {
+		script += `fetch_text "20" "ping0" "https://ipv4.ping0.cc/geo" "https://ipv6.ping0.cc/geo" "https://ping0.cc/geo" &
+`
+	}
+	script += `fetch_text "30" "iplark" "https://iplark.com/cdn-cgi/trace" "https://iplark.com" &
 fetch_text "31" "cloudflare" "https://www.cloudflare.com/cdn-cgi/trace" &
 [ -n "$public_ip" ] && fetch_text "32" "scamalytics" "https://scamalytics.com/ip/$public_ip" &
 [ -n "$public_ip" ] && dnsbl_check "40" "$public_ip" &
@@ -156,6 +163,7 @@ for item in "$tmpdir"/*.out; do
 done
 exit 0
 `
+	return script
 }
 
 // ParseIPQualitySources 解析远程脚本输出，返回结构化数据和来源错误
@@ -276,13 +284,16 @@ func BuildQualityReport(raw map[string]any, errors map[string]string) (map[strin
 			{"住宅 IP", "isResidential"},
 			{"广播 IP", "isBroadcast"},
 		}),
-		buildQualitySite("ping0", "ping0", "https://ping0.cc/", raw["ping0"], errors["ping0"], []QualityField{
+	}
+	if enablePing0Check {
+		sites = append(sites, buildQualitySite("ping0", "ping0", "https://ping0.cc/", raw["ping0"], errors["ping0"], []QualityField{
 			{"IP", "ip"},
 			{"位置", "location"},
 			{"ASN", "asn"},
 			{"组织", "org"},
-		}),
-		buildQualitySite("iplark", "IPLark", "https://iplark.com/", raw["iplark"], errors["iplark"], []QualityField{
+		}))
+	}
+	sites = append(sites, buildQualitySite("iplark", "IPLark", "https://iplark.com/", raw["iplark"], errors["iplark"], []QualityField{
 			{"IP", "ip"},
 			{"地区", "loc"},
 			{"边缘节点", "colo"},
@@ -295,7 +306,7 @@ func BuildQualityReport(raw map[string]any, errors map[string]string) (map[strin
 			{"密钥交换", "kex"},
 			{"纯文本结果", "line0"},
 		}),
-	}
+	)
 	success := 0
 	primaryIP := ""
 	for _, site := range sites {

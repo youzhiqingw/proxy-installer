@@ -17,6 +17,8 @@ export function GetCostV2Instances():Promise<Record<string, any>>;
 
 export function GetCostV2Summary():Promise<Record<string, any>>;
 
+export function GetProfileCredentials(arg1:string):Promise<Record<string, any>>;
+
 export function InspectVPS(arg1:config.SSHProfile):Promise<Record<string, any>>;
 
 export function LinkVPSProfile(arg1:string,arg2:string):Promise<Record<string, any>>;

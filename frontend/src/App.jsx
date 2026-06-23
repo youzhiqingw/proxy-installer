@@ -14,6 +14,7 @@ import {
   CheckPorts,
   CleanupSelectedFootprint,
   GetCostV2Instances,
+  GetProfileCredentials,
   InspectVPS,
   LoadAppState,
   MeasureLatency,
@@ -175,10 +176,24 @@ function App() {
     setDraft(emptyDraft);
   };
 
-  const startEditProfile = (item) => {
+  const startEditProfile = async (item) => {
+    let creds = { password: '', keyPassphrase: '', authMode: item.authMode || '' };
+    try {
+      const result = await callBackend(GetProfileCredentials, item.id);
+      if (result) {
+        creds = {
+          ...creds,
+          password: result.password || '',
+          keyPassphrase: result.keyPassphrase || '',
+        };
+      }
+    } catch (err) {
+      console.warn('凭据加载失败:', err);
+    }
     setDraft({
       name: item.name || '', host: item.host || '', user: item.user || 'root', port: item.port || 22,
-      password: '', authMode: item.authMode || '', privateKeyContent: item.privateKeyContent || '', keyPassphrase: '',
+      password: creds.password, authMode: creds.authMode,
+      privateKeyContent: item.privateKeyContent || '', keyPassphrase: creds.keyPassphrase,
     });
     setEditingId(item.id);
   };

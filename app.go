@@ -243,6 +243,49 @@ func (a *App) LoadAppState() (map[string]any, error) {
 	}, nil
 }
 
+// GetProfileCredentials 按需解密指定 profile 的凭据，返回后立即清除内存中的明文
+func (a *App) GetProfileCredentials(profileID string) (map[string]any, error) {
+	empty := map[string]any{"password": "", "keyPassphrase": "", "authMode": ""}
+	if a.vault == nil {
+		return empty, nil
+	}
+	path, err := appStatePath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var state AppState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("读取本地配置失败: %w", err)
+	}
+	for i := range state.Profiles {
+		if state.Profiles[i].ID == profileID {
+			p := &state.Profiles[i]
+			result := map[string]any{
+				"password":      "",
+				"keyPassphrase": "",
+				"authMode":      p.AuthMode,
+			}
+			if p.PasswordEncrypted != "" {
+				if dec, err := a.vault.Decrypt(p.PasswordEncrypted); err == nil {
+					result["password"] = dec
+				}
+			}
+			if p.KeyPassphraseEnc != "" {
+				if dec, err := a.vault.Decrypt(p.KeyPassphraseEnc); err == nil {
+					result["keyPassphrase"] = dec
+				}
+			}
+			p.ClearAllSecrets()
+			return result, nil
+		}
+	}
+	return empty, nil
+}
+
 func (a *App) SaveAppState(state AppState) (map[string]any, error) {
 	path, err := appStatePath()
 	if err != nil {

@@ -20,11 +20,11 @@ func TestParseIPQualitySourcesSummary(t *testing.T) {
 		t.Fatalf("expected html_response for ping0, got %q", errs["ping0"])
 	}
 	summary, sites, sections := quality.BuildQualityReport(raw, errs)
-	if summary["sourceSuccess"] != 2 || summary["sourceTotal"] != 3 {
+	if summary["sourceSuccess"] != 2 || summary["sourceTotal"] != 2 {
 		t.Fatalf("unexpected source summary: %+v", summary)
 	}
-	if len(sites) != 3 {
-		t.Fatalf("expected three site reports, got %d", len(sites))
+	if len(sites) != 2 {
+		t.Fatalf("expected two site reports (ping0 disabled), got %d", len(sites))
 	}
 	if len(sections) != 6 {
 		t.Fatalf("expected six report sections, got %d", len(sections))
