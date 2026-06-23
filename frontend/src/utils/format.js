@@ -294,3 +294,98 @@ export function emptyDraft() {
     notes: '',
   };
 }
+
+/** Parse health check memory string like "3.8Gi total" or "457Mi total" → GB number */
+export function parseMemoryToGB(memStr) {
+  if (!memStr) return 0;
+  const m = String(memStr).match(/([\d.]+)\s*(Ti|Gi|Mi|Ki|T|G|M|K)/i);
+  if (!m) return 0;
+  const val = parseFloat(m[1]);
+  const unit = m[2].toLowerCase().replace('i', '');
+  switch (unit) {
+    case 't': return +(val * 1024).toFixed(2);
+    case 'g': return +val.toFixed(2);
+    case 'm': return +(val / 1024).toFixed(2);
+    case 'k': return +(val / 1048576).toFixed(2);
+    default: return 0;
+  }
+}
+
+/** Parse health check disk string like "40G total" or "4.9G total" → GB number */
+export function parseDiskToGB(diskStr) {
+  if (!diskStr) return 0;
+  const m = String(diskStr).match(/([\d.]+)\s*(Ti|Gi|Mi|Ki|T|G|M|K)/i);
+  if (!m) return 0;
+  const val = parseFloat(m[1]);
+  const unit = m[2].toLowerCase().replace('i', '');
+  switch (unit) {
+    case 't': return +(val * 1024).toFixed(2);
+    case 'g': return +val.toFixed(2);
+    case 'm': return +(val / 1024).toFixed(2);
+    case 'k': return +(val / 1048576).toFixed(2);
+    default: return 0;
+  }
+}
+
+/** Match OS prettyName (e.g. "Ubuntu 22.04.3 LTS") to OS_PRESETS value (e.g. "Ubuntu 22.04") */
+export function matchOSPreset(prettyName, presets) {
+  if (!prettyName || !presets) return '';
+  const name = prettyName.toLowerCase();
+  // Try exact prefix match: "Ubuntu 22.04" matches "ubuntu 22.04.3 lts"
+  for (const p of presets) {
+    if (p.custom || !p.value) continue;
+    if (name.startsWith(p.value.toLowerCase())) return p.value;
+  }
+  // Fallback: match distro name without version
+  const distroMap = [
+    ['debian', 'Debian'],
+    ['ubuntu', 'Ubuntu'],
+    ['centos', 'CentOS'],
+    ['alma', 'AlmaLinux'],
+    ['rocky', 'Rocky Linux'],
+    ['arch', 'Arch Linux'],
+  ];
+  for (const [keyword, distro] of distroMap) {
+    if (name.includes(keyword)) {
+      const match = presets.find(p => p.value.startsWith(distro));
+      if (match) return match.value;
+    }
+  }
+  return '';
+}
+
+/** Auto-fill cost draft fields from a SSH profile's health check report */
+export function autoFillFromReport(draft, profile, presets) {
+  const r = profile?.report;
+  if (!r) return { ...draft, profileId: profile?.id || '' };
+  const next = { ...draft, profileId: profile.id };
+  // CPU cores
+  if (r.resources?.cpuCores) {
+    const cores = parseInt(r.resources.cpuCores, 10);
+    if (cores > 0) next.cpu = cores;
+  }
+  // Memory
+  if (r.resources?.memory) {
+    const gb = parseMemoryToGB(r.resources.memory);
+    if (gb > 0) next.memory_gb = gb;
+  }
+  // Disk
+  if (r.resources?.disk) {
+    const gb = parseDiskToGB(r.resources.disk);
+    if (gb > 0) next.disk_gb = gb;
+  }
+  // OS
+  if (r.os?.prettyName) {
+    const matched = matchOSPreset(r.os.prettyName, presets);
+    if (matched) next.os = matched;
+  }
+  // Public IP → host
+  if (r.network?.publicIpv4) {
+    next.host = r.network.publicIpv4;
+  }
+  // VPS name default
+  if (!draft.vpsName) {
+    next.vpsName = profile.name || profile.host || '';
+  }
+  return next;
+}

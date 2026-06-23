@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { CURRENCIES, OS_PRESETS } from '../utils/constants';
 import {
+  autoFillFromReport,
   autoNextRenewal,
   cycleMonths,
   currencySymbol,
@@ -403,7 +404,11 @@ function CostCenter({ profiles, instances, setInstances }) {
               <input value={draft.vpsName} onChange={(e) => setDraft({ ...draft, vpsName: e.target.value })} placeholder="如：洛杉矶 CN2 轻量 A 型" />
             </Field>
             <Field label="关联 SSH 配置（可选）">
-              <select value={draft.profileId || ''} onChange={(e) => setDraft({ ...draft, profileId: e.target.value })}>
+              <select value={draft.profileId || ''} onChange={(e) => {
+                const pid = e.target.value;
+                const p = profiles.find((item) => item.id === pid);
+                setDraft(p ? autoFillFromReport(draft, p, OS_PRESETS) : { ...draft, profileId: pid });
+              }}>
                 <option value="">-- 不关联 --</option>
                 {profiles.map((p) => <option key={p.id} value={p.id}>{p.name || p.host}</option>)}
               </select>
