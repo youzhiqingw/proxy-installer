@@ -769,6 +769,30 @@ h3 { font-size: 15px; }
   color: var(--accent);
 }
 
+.form-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.server-row.editing {
+  border-left: 3px solid var(--accent);
+}
+
+.key-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.key-input-group textarea {
+  width: 100%;
+}
+.key-upload-btn {
+  align-self: flex-end;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+}
+
 .server-list,
 .subs,
 .detail-list {

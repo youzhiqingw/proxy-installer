@@ -56,6 +56,7 @@ function App() {
   const [progress, setProgress] = useState({ value: 0, status: 'idle', message: '等待操作', logs: [] });
   const [profiles, setProfiles] = useState([]);
   const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' });
+  const [editingId, setEditingId] = useState(null);
   const [speed, setSpeed] = useState({ running: false, qualityRunning: false, items: [], remote: null, node: null, quality: null, error: '', notice: '' });
   const [maintenance, setMaintenance] = useState({ running: false, footprint: null, logs: [], error: '' });
   const [hostKeyDialog, setHostKeyDialog] = useState(null);
@@ -157,12 +158,34 @@ function App() {
     return () => off();
   }, []);
 
+  const emptyDraft = { name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' };
+
   const addProfile = () => {
     if (!draft.host.trim()) return;
-    const next = { ...draft, host: draft.host.trim(), id: crypto.randomUUID(), status: '未体检' };
-    setProfiles((current) => [...current, next]);
-    setDeployConfig((current) => ({ ...current, profileId: next.id }));
-    setDraft({ name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' });
+    if (editingId) {
+      setProfiles((current) => current.map((item) =>
+        item.id === editingId ? { ...item, ...draft, host: draft.host.trim() } : item
+      ));
+      setEditingId(null);
+    } else {
+      const next = { ...draft, host: draft.host.trim(), id: crypto.randomUUID(), status: '未体检' };
+      setProfiles((current) => [...current, next]);
+      setDeployConfig((current) => ({ ...current, profileId: next.id }));
+    }
+    setDraft(emptyDraft);
+  };
+
+  const startEditProfile = (item) => {
+    setDraft({
+      name: item.name || '', host: item.host || '', user: item.user || 'root', port: item.port || 22,
+      password: '', authMode: item.authMode || '', privateKeyContent: item.privateKeyContent || '', keyPassphrase: '',
+    });
+    setEditingId(item.id);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraft(emptyDraft);
   };
 
   // 检测 HostKey 确认错误并弹出确认对话框，确认后自动重试
@@ -402,7 +425,10 @@ function App() {
               profiles={profiles}
               draft={draft}
               setDraft={setDraft}
+              editingId={editingId}
               addProfile={addProfile}
+              startEditProfile={startEditProfile}
+              cancelEdit={cancelEdit}
               setProfiles={setProfiles}
               setDeployConfig={setDeployConfig}
               testProfile={testProfile}
