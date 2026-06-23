@@ -1110,7 +1110,17 @@ func (a *App) loadCostV2() (CostV2Data, map[string]any, error) {
 }
 
 func (a *App) saveCostV2(extra map[string]any) error {
-	_, err := a.SaveAppState(AppState{Extra: extra})
+	// Load current state to preserve profiles, deploy config, etc.
+	path, err := appStatePath()
+	if err != nil {
+		return err
+	}
+	var state AppState
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &state)
+	}
+	state.Extra = extra
+	_, err = a.SaveAppState(state)
 	return err
 }
 
