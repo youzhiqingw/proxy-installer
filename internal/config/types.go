@@ -42,11 +42,15 @@ type SSHProfile struct {
 	User              string `json:"user"`
 	Username          string `json:"username"`
 	Port              int    `json:"port"`
-	Password          []byte `json:"-"`                          // 内存安全：[]byte 可 zero out
-	PasswordEncrypted string `json:"password_encrypted,omitempty"` // 加密存储字段
+	AuthMode          string `json:"auth_mode,omitempty"`            // "" | "password" | "key"
+	PrivateKeyContent string `json:"private_key_content,omitempty"`  // 私钥 PEM 文本（持久化）
+	KeyPassphrase     []byte `json:"-"`                              // 密钥口令（内存，zero-out）
+	KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`   // vault 加密口令
+	Password          []byte `json:"-"`                              // 内存安全：[]byte 可 zero out
+	PasswordEncrypted string `json:"password_encrypted,omitempty"`   // 加密存储字段
 }
 
-// MarshalJSON 自定义序列化，确保 Password 不直接暴露
+// MarshalJSON 自定义序列化，确保 Password/KeyPassphrase 不直接暴露
 func (p SSHProfile) MarshalJSON() ([]byte, error) {
 	type Alias struct {
 		ID                string `json:"id"`
@@ -55,6 +59,9 @@ func (p SSHProfile) MarshalJSON() ([]byte, error) {
 		User              string `json:"user"`
 		Username          string `json:"username"`
 		Port              int    `json:"port"`
+		AuthMode          string `json:"auth_mode,omitempty"`
+		PrivateKeyContent string `json:"private_key_content,omitempty"`
+		KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`
 		Password          string `json:"password"`
 		PasswordEncrypted string `json:"password_encrypted,omitempty"`
 	}
@@ -65,6 +72,9 @@ func (p SSHProfile) MarshalJSON() ([]byte, error) {
 		User:              p.User,
 		Username:          p.Username,
 		Port:              p.Port,
+		AuthMode:          p.AuthMode,
+		PrivateKeyContent: p.PrivateKeyContent,
+		KeyPassphraseEnc:  p.KeyPassphraseEnc,
 		Password:          string(p.Password),
 		PasswordEncrypted: p.PasswordEncrypted,
 	})
@@ -79,6 +89,9 @@ func (p *SSHProfile) UnmarshalJSON(data []byte) error {
 		User              string `json:"user"`
 		Username          string `json:"username"`
 		Port              int    `json:"port"`
+		AuthMode          string `json:"auth_mode,omitempty"`
+		PrivateKeyContent string `json:"private_key_content,omitempty"`
+		KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`
 		Password          string `json:"password"`
 		PasswordEncrypted string `json:"password_encrypted,omitempty"`
 	}
@@ -92,6 +105,9 @@ func (p *SSHProfile) UnmarshalJSON(data []byte) error {
 	p.User = a.User
 	p.Username = a.Username
 	p.Port = a.Port
+	p.AuthMode = a.AuthMode
+	p.PrivateKeyContent = a.PrivateKeyContent
+	p.KeyPassphraseEnc = a.KeyPassphraseEnc
 	p.Password = []byte(a.Password)
 	p.PasswordEncrypted = a.PasswordEncrypted
 	return nil
@@ -110,6 +126,20 @@ func (p *SSHProfile) PasswordString() string {
 	s := string(p.Password)
 	p.ClearPassword()
 	return s
+}
+
+// ClearKeyMaterial 将密钥相关字节置零，防止内存残留
+func (p *SSHProfile) ClearKeyMaterial() {
+	for i := range p.KeyPassphrase {
+		p.KeyPassphrase[i] = 0
+	}
+	p.KeyPassphrase = nil
+}
+
+// ClearAllSecrets 清除所有敏感凭据（密码 + 密钥材料）
+func (p *SSHProfile) ClearAllSecrets() {
+	p.ClearPassword()
+	p.ClearKeyMaterial()
 }
 
 // DeployConfig 部署配置

@@ -55,7 +55,7 @@ function App() {
   const [costInstances, setCostInstances] = useState([]);
   const [progress, setProgress] = useState({ value: 0, status: 'idle', message: '等待操作', logs: [] });
   const [profiles, setProfiles] = useState([]);
-  const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '' });
+  const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' });
   const [speed, setSpeed] = useState({ running: false, qualityRunning: false, items: [], remote: null, node: null, quality: null, error: '', notice: '' });
   const [maintenance, setMaintenance] = useState({ running: false, footprint: null, logs: [], error: '' });
   const [hostKeyDialog, setHostKeyDialog] = useState(null);
@@ -162,7 +162,7 @@ function App() {
     const next = { ...draft, host: draft.host.trim(), id: crypto.randomUUID(), status: '未体检' };
     setProfiles((current) => [...current, next]);
     setDeployConfig((current) => ({ ...current, profileId: next.id }));
-    setDraft({ name: '', host: '', user: 'root', port: 22, password: '' });
+    setDraft({ name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' });
   };
 
   // 检测 HostKey 确认错误并弹出确认对话框，确认后自动重试

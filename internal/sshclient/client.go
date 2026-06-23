@@ -178,7 +178,7 @@ func NewClient(store *HostKeyStore) *Client {
 	}
 }
 
-// Connect 建立 SSH 连接，成功后返回 *ssh.Client
+// Connect 建立 SSH 连接，支持密码和密钥两种认证方式
 func (c *Client) Connect(profile config.SSHProfile) (*ssh.Client, error) {
 	host := c.normalizeHost(profile.Host)
 	if host == "" {
@@ -195,33 +195,80 @@ func (c *Client) Connect(profile config.SSHProfile) (*ssh.Client, error) {
 	if port == 0 {
 		port = 22
 	}
-	if len(profile.Password) == 0 {
-		return nil, fmt.Errorf("请输入 SSH 密码")
+
+	// 根据认证方式构建 Auth 方法
+	var authMethods []ssh.AuthMethod
+	switch {
+	case profile.AuthMode == "key" || profile.PrivateKeyContent != "":
+		// 密钥认证
+		keyData := []byte(profile.PrivateKeyContent)
+		if len(keyData) == 0 {
+			return nil, apperr.NewSSH("密钥认证模式：请提供私钥内容", nil)
+		}
+		var signer ssh.Signer
+		var err error
+		if len(profile.KeyPassphrase) > 0 {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase(keyData, profile.KeyPassphrase)
+		} else {
+			signer, err = ssh.ParsePrivateKey(keyData)
+		}
+		profile.ClearKeyMaterial()
+		if err != nil {
+			return nil, apperr.NewSSH("私钥解析失败 — 请检查私钥格式或口令是否正确", err)
+		}
+		authMethods = []ssh.AuthMethod{ssh.PublicKeys(signer)}
+
+	case len(profile.Password) > 0:
+		// 密码认证
+		pwStr := string(profile.Password)
+		profile.ClearPassword()
+		authMethods = []ssh.AuthMethod{ssh.Password(pwStr)}
+		defer func() { pwStr = "" }()
+
+	default:
+		return nil, apperr.NewSSH("请提供 SSH 密码或私钥", nil)
 	}
 
-	// 将密码转为字符串用于 SSH 认证，立即将字节置零
-	pwStr := string(profile.Password)
-	profile.ClearPassword()
-
 	cfg := &ssh.ClientConfig{
-		User: user,
-		Auth: []ssh.AuthMethod{ssh.Password(pwStr)},
+		User:       user,
+		Auth:       authMethods,
 		HostKeyCallback: func(h string, remote net.Addr, key ssh.PublicKey) error {
 			return c.HostKeyCallback(h, remote, key)
 		},
 		Timeout: 18 * time.Second,
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	logger.Info("SSH 连接", "host", host, "port", port, "user", user)
+	logger.Info("SSH 连接", "host", host, "port", port, "user", user, "authMode", profile.AuthMode)
 	client, err := ssh.Dial("tcp", addr, cfg)
-	// 无论连接成功与否，立即清除密码字符串
-	pwStr = ""
 	if err != nil {
 		logger.Error("SSH 连接失败", "host", host, "port", port, "error", err.Error())
-		return nil, err
+		return nil, classifySSHError(err, profile)
 	}
 	logger.Info("SSH 连接成功", "host", host, "port", port)
 	return client, nil
+}
+
+// classifySSHError 将 SSH 错误转换为带诊断信息的 AppError
+func classifySSHError(err error, profile config.SSHProfile) error {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "unable to authenticate"):
+		if profile.AuthMode == "key" || profile.PrivateKeyContent != "" {
+			return apperr.NewSSH("密钥认证被拒绝 — VPS 可能未配置此公钥，或私钥/口令不匹配", err)
+		}
+		return apperr.NewSSH("密码认证被拒绝 — VPS 可能禁用了密码登录（仅允许密钥），请切换密钥认证", err)
+	case strings.Contains(msg, "connection refused"):
+		return apperr.NewSSH("连接被拒绝 — 请检查主机和端口是否正确，以及 SSH 服务是否运行", err)
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded"):
+		return apperr.NewSSH("连接超时 — 请检查网络连通性或防火墙规则", err)
+	case strings.Contains(msg, "no such host"):
+		return apperr.NewSSH("无法解析主机名 — 请检查主机地址是否正确", err)
+	case strings.Contains(msg, "HOSTKEY_CONFIRM"):
+		// HostKey 确认错误直接透传，由前端处理确认流程
+		return err
+	default:
+		return apperr.NewSSH("SSH 连接失败", err)
+	}
 }
 
 // HostKeyCallback 实现 SSH HostKey 验证（TOFU 模型）

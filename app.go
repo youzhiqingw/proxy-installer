@@ -20,6 +20,7 @@ import (
 	"proxy-installer/internal/deploy"
 	"proxy-installer/internal/logger"
 	"proxy-installer/internal/quality"
+	"proxy-installer/internal/ruleengine"
 	"proxy-installer/internal/singbox"
 	"proxy-installer/internal/speedtest"
 	"proxy-installer/internal/sshclient"
@@ -200,6 +201,7 @@ func (a *App) LoadAppState() (map[string]any, error) {
 	}
 
 	// Decrypt passwords and auto-migrate plaintext ones
+	// Also decrypt key passphrases for key-mode profiles
 	if a.vault != nil {
 		for i := range state.Profiles {
 			p := &state.Profiles[i]
@@ -212,13 +214,21 @@ func (a *App) LoadAppState() (map[string]any, error) {
 					p.Password = []byte(p.PasswordEncrypted)
 				}
 			}
+			if p.KeyPassphraseEnc != "" {
+				dec, err := a.vault.Decrypt(p.KeyPassphraseEnc)
+				if err == nil {
+					p.KeyPassphrase = []byte(dec)
+				} else {
+					logger.Warn("密钥口令解密失败", "profile", p.Name, "error", err.Error())
+				}
+			}
 		}
 	}
 
-	// T-08: 清除内存中的明文密码，防止通过前端返回泄露
-	// 密码仅在 SSH 操作时按需解密使用
+	// T-08: 清除内存中的明文凭据，防止通过前端返回泄露
+	// 密码和密钥口令仅在 SSH 操作时按需解密使用
 	for i := range state.Profiles {
-		state.Profiles[i].ClearPassword()
+		state.Profiles[i].ClearAllSecrets()
 	}
 
 	return map[string]any{
@@ -244,7 +254,7 @@ func (a *App) SaveAppState(state AppState) (map[string]any, error) {
 		state.Extra = map[string]any{}
 	}
 
-	// Encrypt passwords before saving
+	// Encrypt passwords and key passphrases before saving
 	if a.vault != nil {
 		for i := range state.Profiles {
 			p := &state.Profiles[i]
@@ -258,6 +268,13 @@ func (a *App) SaveAppState(state AppState) (map[string]any, error) {
 				}
 			}
 			// If password is empty but PasswordEncrypted exists, keep it (no change)
+			if p.AuthMode == "key" && len(p.KeyPassphrase) > 0 {
+				enc, err := a.vault.Encrypt(string(p.KeyPassphrase))
+				p.ClearKeyMaterial()
+				if err == nil {
+					p.KeyPassphraseEnc = enc
+				}
+			}
 		}
 	}
 
@@ -1155,4 +1172,22 @@ func (a *App) LinkVPSProfile(instanceID, profileID string) (map[string]any, erro
 	}
 	cost.SetCostV2(extra, c)
 	return map[string]any{"ok": true}, a.saveCostV2(extra)
+}
+
+// BuildRoutingRules 生成 sing-box 分流规则 JSON 片段
+func (a *App) BuildRoutingRules(domains, cidrs []string, action string) (string, error) {
+	ruleAction := ruleengine.RuleAction(action)
+	if ruleAction != ruleengine.ActionDirect &&
+		ruleAction != ruleengine.ActionProxy &&
+		ruleAction != ruleengine.ActionBlock {
+		return "", fmt.Errorf("无效的动作: %s (可选: direct/proxy/block)", action)
+	}
+	result, warnings, err := ruleengine.BuildRules(domains, cidrs, ruleAction)
+	if err != nil {
+		return "", err
+	}
+	if len(warnings) > 0 {
+		logger.Warn("规则生成存在警告", "warnings", strings.Join(warnings, "; "))
+	}
+	return result, nil
 }

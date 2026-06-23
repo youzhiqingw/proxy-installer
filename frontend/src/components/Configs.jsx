@@ -28,7 +28,31 @@ function Configs({ profiles, draft, setDraft, addProfile, setProfiles, setDeploy
           <Field label="用户"><input value={draft.user} onChange={(e) => setDraft({ ...draft, user: e.target.value })} /></Field>
           <Field label="端口"><input type="number" value={draft.port} onChange={(e) => setDraft({ ...draft, port: Number(e.target.value) })} /></Field>
         </div>
-        <Field label="密码"><input type="password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></Field>
+        <Field label="认证方式">
+          <div className="auth-mode-toggle">
+            <button type="button" className={draft.authMode !== 'key' ? 'active' : ''}
+              onClick={() => setDraft({ ...draft, authMode: '', password: '', privateKeyContent: '', keyPassphrase: '' })}>
+              密码
+            </button>
+            <button type="button" className={draft.authMode === 'key' ? 'active' : ''}
+              onClick={() => setDraft({ ...draft, authMode: 'key', password: '' })}>
+              密钥
+            </button>
+          </div>
+        </Field>
+
+        {draft.authMode !== 'key' ? (
+          <Field label="密码"><input type="password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></Field>
+        ) : (
+          <>
+            <Field label="私钥内容">
+              <textarea rows={4} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
+                value={draft.privateKeyContent || ''}
+                onChange={(e) => setDraft({ ...draft, privateKeyContent: e.target.value })} />
+            </Field>
+            <Field label="密钥口令（可选）"><input type="password" value={draft.keyPassphrase || ''} onChange={(e) => setDraft({ ...draft, keyPassphrase: e.target.value })} /></Field>
+          </>
+        )}
         <button className="primary wide-button" onClick={addProfile}><Plus size={16} />保存配置</button>
       </section>
 

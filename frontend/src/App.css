@@ -750,6 +750,25 @@ h3 { font-size: 15px; }
   width: 100%;
 }
 
+.auth-mode-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+.auth-mode-toggle button {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.auth-mode-toggle button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .server-list,
 .subs,
 .detail-list {
