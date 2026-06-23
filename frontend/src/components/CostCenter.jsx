@@ -145,7 +145,7 @@ function ExpiringBanner({ instances }) {
   );
 }
 
-function InstanceCard({ inst, onEdit, onDelete }) {
+function InstanceCard({ inst, profiles, onEdit, onDelete }) {
   const status = getInstanceStatus(inst);
   const stripeColor = { overdue: '#f43f5e', 'due-week': '#f59e0b', 'due-month': '#f59e0b', lifetime: '#8b5cf6', ok: '#22c55e' }[status];
   const badge = {
@@ -195,11 +195,17 @@ function InstanceCard({ inst, onEdit, onDelete }) {
       {inst.notes && (
         <div className="instance-notes">{'\ud83d\udcdd'} {inst.notes}</div>
       )}
+      {inst.profileId && (() => {
+        const linked = profiles?.find(p => p.id === inst.profileId);
+        return linked ? (
+          <div className="instance-linked-profile">{'\ud83d\udd17'} {linked.name || linked.host}</div>
+        ) : null;
+      })()}
     </div>
   );
 }
 
-function VendorGroup({ vendor, instances, onEdit, onDelete }) {
+function VendorGroup({ vendor, instances, profiles, onEdit, onDelete }) {
   const [collapsed, setCollapsed] = useState(false);
   const monthlyCost = instances.reduce((acc, inst) => {
     const monthly = toMonthly(Number(inst.price || 0), inst.billingCycle);
@@ -225,7 +231,7 @@ function VendorGroup({ vendor, instances, onEdit, onDelete }) {
       {!collapsed && (
         <div className="vendor-group-body">
           {instances.map(inst => (
-            <InstanceCard key={inst.id} inst={inst} onEdit={onEdit} onDelete={onDelete} />
+            <InstanceCard key={inst.id} inst={inst} profiles={profiles} onEdit={onEdit} onDelete={onDelete} />
           ))}
         </div>
       )}
@@ -360,6 +366,7 @@ function CostCenter({ profiles, instances, setInstances }) {
           key={name}
           vendor={name === '未指定厂商' ? '' : name}
           instances={providerMap[name]}
+          profiles={profiles}
           onEdit={openForm}
           onDelete={deleteInstance}
         />
@@ -396,7 +403,7 @@ function CostCenter({ profiles, instances, setInstances }) {
               <input value={draft.vpsName} onChange={(e) => setDraft({ ...draft, vpsName: e.target.value })} placeholder="如：洛杉矶 CN2 轻量 A 型" />
             </Field>
             <Field label="关联 SSH 配置（可选）">
-              <select value={draft.host || draft.profileId} onChange={(e) => setDraft({ ...draft, host: e.target.value, profileId: e.target.value })}>
+              <select value={draft.profileId || ''} onChange={(e) => setDraft({ ...draft, profileId: e.target.value })}>
                 <option value="">-- 不关联 --</option>
                 {profiles.map((p) => <option key={p.id} value={p.id}>{p.name || p.host}</option>)}
               </select>

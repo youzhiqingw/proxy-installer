@@ -58,6 +58,7 @@
 .instance-price { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
 .instance-price strong { color: var(--text1); font-weight: 600; }
 .instance-notes { margin-top: 4px; padding: 8px; background: var(--bg2); border-radius: 6px; font-size: 12px; color: var(--text2); white-space: pre-wrap; line-height: 1.5; border-left: 2px solid var(--amber); }
+.instance-linked-profile { margin-top: 4px; padding: 6px 8px; background: var(--bg2); border-radius: 6px; font-size: 12px; color: var(--text2); line-height: 1.5; border-left: 2px solid var(--accent); }
 
 /* Add button */
 .add-instance-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--text2); cursor: pointer; font-size: 13px; }
