@@ -3,6 +3,7 @@ import {
   ArrowUpDown,
   Building2,
   CalendarDays,
+  Check,
   Cpu,
   CreditCard,
   Edit,
@@ -11,6 +12,7 @@ import {
   Monitor,
   Plus,
   Server,
+  Tag,
   Trash2,
   Wifi,
   X,
@@ -76,7 +78,7 @@ function FormSection({ title, collapsible = false, defaultOpen = true, badge, ch
         )}
         {collapsible && (
           <span style={{ marginLeft: 'auto', fontSize: 14, color: '#94a3b8' }}>
-            {open ? '\u2303' : '\u2304'}
+            {open ? '⌃' : '⌄'}
           </span>
         )}
       </div>
@@ -106,17 +108,17 @@ function ExpiringBanner({ instances }) {
   const overdueCount = expiring.filter(i => new Date(i.nextRenewal) < new Date()).length;
   const soonCount = expiring.length - overdueCount;
   const summaryText = [
-    overdueCount > 0 && `${overdueCount} \u53f0\u5df2\u8fc7\u671f`,
-    soonCount > 0 && `${soonCount} \u53f0\u5373\u5c06\u5230\u671f`,
-  ].filter(Boolean).join('\uff0c');
+    overdueCount > 0 && `${overdueCount} 台已过期`,
+    soonCount > 0 && `${soonCount} 台即将到期`,
+  ].filter(Boolean).join('，');
   const sorted = [...expiring].sort((a, b) => new Date(a.nextRenewal) - new Date(b.nextRenewal));
   return (
     <div className="expiry-banner">
       <div className="expiry-banner-header" onClick={() => setCollapsed(c => !c)} role="button" aria-expanded={!collapsed}>
-        <span>{'\u26a0\ufe0f'} \u7eed\u8d39\u63d0\u9192</span>
+        <span>{'⚠️'} 续费提醒</span>
         <span className="expiry-banner-count">{expiring.length}</span>
         <span className="expiry-banner-summary">{summaryText}</span>
-        <span className="expiry-banner-toggle">{collapsed ? '\u5c55\u5f00 \u2304' : '\u6536\u8d77 \u2303'}</span>
+        <span className="expiry-banner-toggle">{collapsed ? '展开 ⌄' : '收起 ⌃'}</span>
       </div>
       {!collapsed && sorted.map(inst => {
         const diffDays = Math.ceil((new Date(inst.nextRenewal) - new Date()) / 86400000);
@@ -124,17 +126,17 @@ function ExpiringBanner({ instances }) {
         const statusClass = isOverdue ? 'overdue' : 'due-soon';
         const statusIcon = isOverdue ? '\ud83d\udd34' : '\ud83d\udfe1';
         const statusText = isOverdue
-          ? `\u5df2\u8fc7\u671f ${Math.abs(diffDays)} \u5929`
-          : diffDays === 0 ? '\u4eca\u65e5\u5230\u671f' : `${inst.nextRenewal}\uff08${diffDays} \u5929\u540e\uff09`;
+          ? `已过期 ${Math.abs(diffDays)} 天`
+          : diffDays === 0 ? '今日到期' : `${inst.nextRenewal}（${diffDays} 天后）`;
         const currSym = CURRENCIES.find(c => c.code === inst.currency)?.symbol || '';
-        const cycleLabel = { monthly: '\u6708', quarterly: '\u5b63', semiannual: '\u534a\u5e74', annual: '\u5e74' }[inst.billingCycle] || '';
+        const cycleLabel = { monthly: '月', quarterly: '季', semiannual: '半年', annual: '年' }[inst.billingCycle] || '';
         return (
           <div key={inst.id} className="expiry-item">
             <div className={`expiry-item-dot ${statusClass}`} />
             <span>{statusIcon}</span>
             <span className="expiry-item-name">{inst.vpsName}</span>
             <span className="expiry-item-meta">
-              {inst.providerName ? `${inst.providerName} \u00b7 ` : ''}{statusText}
+              {inst.providerName ? `${inst.providerName} · ` : ''}{statusText}
             </span>
             <span className="expiry-item-price">
               {currSym}{inst.price?.toFixed(2)}/{cycleLabel}
@@ -146,18 +148,36 @@ function ExpiringBanner({ instances }) {
   );
 }
 
-function InstanceCard({ inst, profiles, onEdit, onDelete }) {
+function InstanceCard({ inst, profiles, onEdit, onDelete, onQuickProvider }) {
   const status = getInstanceStatus(inst);
   const stripeColor = { overdue: '#f43f5e', 'due-week': '#f59e0b', 'due-month': '#f59e0b', lifetime: '#8b5cf6', ok: '#22c55e' }[status];
   const badge = {
-    overdue: { text: '\u5df2\u8fc7\u671f', cls: 'badge-overdue' },
-    'due-week': { text: '7\u5929\u5185\u5230\u671f', cls: 'badge-due-week' },
-    'due-month': { text: '\u5373\u5c06\u5230\u671f', cls: 'badge-due-month' },
-    lifetime: { text: '\u7ec8\u8eab', cls: 'badge-lifetime' },
+    overdue: { text: '已过期', cls: 'badge-overdue' },
+    'due-week': { text: '7天内到期', cls: 'badge-due-week' },
+    'due-month': { text: '即将到期', cls: 'badge-due-month' },
+    lifetime: { text: '终身', cls: 'badge-lifetime' },
     ok: null,
   }[status];
   const currSymbol = CURRENCIES.find(c => c.code === inst.currency)?.symbol || '';
-  const cycleLabel = { monthly: '\u6708', quarterly: '\u5b63', semiannual: '\u534a\u5e74', annual: '\u5e74', lifetime: '\u4e70\u65ad' }[inst.billingCycle] || '';
+  const cycleLabel = { monthly: '月', quarterly: '季', semiannual: '半年', annual: '年', lifetime: '买断' }[inst.billingCycle] || '';
+  const [editingProvider, setEditingProvider] = useState(false);
+  const [providerInput, setProviderInput] = useState('');
+
+  const startProviderEdit = () => {
+    setProviderInput(inst.providerName || '');
+    setEditingProvider(true);
+  };
+  const saveProvider = async () => {
+    setEditingProvider(false);
+    if (providerInput !== (inst.providerName || '')) {
+      onQuickProvider?.(inst.id, providerInput);
+    }
+  };
+  const cancelProviderEdit = () => {
+    setEditingProvider(false);
+    setProviderInput('');
+  };
+
   return (
     <div className="instance-card">
       <div className="instance-card-stripe" style={{ background: stripeColor }} />
@@ -165,14 +185,46 @@ function InstanceCard({ inst, profiles, onEdit, onDelete }) {
         <span className="instance-card-name">{inst.vpsName}</span>
         {badge && <span className={`instance-status-badge ${badge.cls}`}>{badge.text}</span>}
         <div className="instance-actions">
-          <button className="btn-icon-sm" title="\u7f16\u8f91" onClick={() => onEdit(inst)}><Edit size={13} /></button>
-          <button className="btn-icon-sm danger" title="\u5220\u9664" onClick={() => onDelete(inst.id)}><Trash2 size={13} /></button>
+          <button className="btn-icon-sm" title="编辑" onClick={() => onEdit(inst)}><Edit size={13} /></button>
+          <button className="btn-icon-sm danger" title="删除" onClick={() => onDelete(inst.id)}><Trash2 size={13} /></button>
         </div>
       </div>
-      {(inst.providerName || inst.planName) && (
-        <div className="instance-card-subtitle">
-          {[inst.providerName, inst.planName].filter(Boolean).join(' \u00b7 ')}
-          {inst.os && <span>\u00b7 {inst.os}</span>}
+      {editingProvider ? (
+        <div className="instance-provider-inline" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 0' }}>
+          <Tag size={11} style={{ color: '#64748b', flexShrink: 0 }} />
+          <input
+            autoFocus
+            value={providerInput}
+            onChange={(e) => setProviderInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveProvider(); if (e.key === 'Escape') cancelProviderEdit(); }}
+            placeholder="输入厂商名称"
+            style={{
+              flex: 1, fontSize: 12, padding: '2px 6px', borderRadius: 4,
+              border: '1px solid var(--line)', outline: 'none', background: 'var(--bg)',
+            }}
+          />
+          <button onClick={saveProvider} style={{ padding: 2, color: '#22c55e', background: 'none', border: 'none', cursor: 'pointer' }} title="保存"><Check size={14} /></button>
+          <button onClick={cancelProviderEdit} style={{ padding: 2, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }} title="取消"><X size={14} /></button>
+        </div>
+      ) : (
+        <div
+          className="instance-card-subtitle"
+          onClick={startProviderEdit}
+          style={{ cursor: 'pointer' }}
+          title="点击修改厂商分组"
+        >
+          {inst.providerName ? (
+            <>
+              <span>{inst.providerName}</span>
+              <Edit size={10} style={{ color: '#94a3b8' }} />
+            </>
+          ) : (
+            <span style={{ color: '#94a3b8' }}>
+              <Tag size={10} style={{ marginRight: 3, verticalAlign: -1 }} />未分组（点击设置）
+            </span>
+          )}
+          {inst.planName && <span>{inst.planName}</span>}
+          {inst.os && <span>· {inst.os}</span>}
         </div>
       )}
       <div className="spec-chips-row">
@@ -181,7 +233,8 @@ function InstanceCard({ inst, profiles, onEdit, onDelete }) {
         {inst.disk_gb > 0 && <SpecChip icon={<HardDrive size={10} />}>{displayDisk(inst.disk_gb)}</SpecChip>}
         {inst.bandwidth_mbps > 0 && <SpecChip icon={<Wifi size={10} />}>{displayBandwidth(inst.bandwidth_mbps)}</SpecChip>}
         <SpecChip icon={<ArrowUpDown size={10} />}>{displayTraffic(inst.traffic_gb)}</SpecChip>
-        {inst.ipv4Count > 0 && <SpecChip icon={<Globe size={10} />}>{inst.ipv4Count} IPv4</SpecChip>}
+        {inst.ipv4Count > 0 && <SpecChip icon={<Globe size={10} />}>{inst.ipv4Count} IPv4{inst.ipv4Address ? ` (${inst.ipv4Address})` : ''}</SpecChip>}
+        {inst.ipv6Count > 0 && <SpecChip icon={<Globe size={10} />}>{inst.ipv6Count} IPv6{inst.ipv6Address ? ` (${inst.ipv6Address})` : ''}</SpecChip>}
       </div>
       <div className="instance-card-footer">
         <span className="instance-price">
@@ -189,7 +242,7 @@ function InstanceCard({ inst, profiles, onEdit, onDelete }) {
         </span>
         {inst.nextRenewal && inst.billingCycle !== 'lifetime' && (
           <span className="instance-dates">
-            \u8d2d\u4e8e {inst.purchaseDate} \u00b7 \u7eed\u8d39 {inst.nextRenewal}
+            购于 {inst.purchaseDate} · 续费 {inst.nextRenewal}
           </span>
         )}
       </div>
@@ -206,7 +259,7 @@ function InstanceCard({ inst, profiles, onEdit, onDelete }) {
   );
 }
 
-function VendorGroup({ vendor, instances, profiles, onEdit, onDelete }) {
+function VendorGroup({ vendor, instances, profiles, onEdit, onDelete, onQuickProvider }) {
   const [collapsed, setCollapsed] = useState(false);
   const monthlyCost = instances.reduce((acc, inst) => {
     const monthly = toMonthly(Number(inst.price || 0), inst.billingCycle);
@@ -221,18 +274,18 @@ function VendorGroup({ vendor, instances, profiles, onEdit, onDelete }) {
     <div className="vendor-group">
       <div className="vendor-group-head" onClick={() => setCollapsed(c => !c)}>
         <span>{'\ud83c\udfe2'}</span>
-        <span className="vendor-group-name">{vendor || '\u672a\u5206\u7ec4'}</span>
+        <span className="vendor-group-name">{vendor || '未分组'}</span>
         <span className="vendor-group-meta">
-          {instances.length} \u53f0 VPS \u00b7 {costStr}/\u6708
+          {instances.length} 台 VPS · {costStr}/月
         </span>
         <span className="vendor-group-toggle">
-          {collapsed ? '\u2304' : '\u2303'}
+          {collapsed ? '⌄' : '⌃'}
         </span>
       </div>
       {!collapsed && (
         <div className="vendor-group-body">
           {instances.map(inst => (
-            <InstanceCard key={inst.id} inst={inst} profiles={profiles} onEdit={onEdit} onDelete={onDelete} />
+            <InstanceCard key={inst.id} inst={inst} profiles={profiles} onEdit={onEdit} onDelete={onDelete} onQuickProvider={onQuickProvider} />
           ))}
         </div>
       )}
@@ -282,7 +335,15 @@ function CostCenter({ profiles, instances, setInstances }) {
 
   const openForm = (inst) => {
     if (inst) {
-      setDraft({ ...emptyDraft(), ...inst, price: Number(inst.price) || 0 });
+      let nextDraft = { ...emptyDraft(), ...inst, price: Number(inst.price) || 0 };
+      // Sync fresh report data from linked profile if available
+      if (inst.profileId) {
+        const linkedProfile = profiles.find(p => p.id === inst.profileId);
+        if (linkedProfile?.report) {
+          nextDraft = autoFillFromReport(nextDraft, linkedProfile, OS_PRESETS);
+        }
+      }
+      setDraft(nextDraft);
       setEditingId(inst.id);
       setMemUnit(Number(inst.memory_gb) > 0 && Number(inst.memory_gb) < 1 ? 'MB' : 'GB');
       setDiskUnit(Number(inst.disk_gb) > 500 ? 'TB' : 'GB');
@@ -307,6 +368,9 @@ function CostCenter({ profiles, instances, setInstances }) {
       bandwidth_mbps: Number(draft.bandwidth_mbps) || 0,
       traffic_gb: Number(draft.traffic_gb) || 0,
       ipv4Count: Number(draft.ipv4Count) || 0,
+      ipv4Address: draft.ipv4Address || '',
+      ipv6Count: Number(draft.ipv6Count) || 0,
+      ipv6Address: Number(draft.ipv6Count) > 0 ? (draft.ipv6Address || '') : '',
       price: Number(draft.price) || 0,
     };
     try {
@@ -334,6 +398,24 @@ function CostCenter({ profiles, instances, setInstances }) {
       await callBackend(DeleteCostVPSInstance, id);
       setInstances((prev) => prev.filter((v) => v.id !== id));
     } catch (e) { console.warn(e); }
+  };
+
+  const quickProvider = async (id, providerName) => {
+    const inst = instances.find(v => v.id === id);
+    if (!inst) return;
+    const updated = { ...inst, providerName };
+    try {
+      const r = await callBackend(SaveCostVPSInstance, updated);
+      if (r?.ok) {
+        setInstances((prev) => prev.map((v) => v.id === id ? updated : v));
+      } else {
+        console.error('quickProvider failed:', r?.error);
+        alert('修改厂商失败：' + (r?.error || '未知错误'));
+      }
+    } catch (e) {
+      console.error('quickProvider error:', e);
+      alert('修改厂商失败：' + String(e));
+    }
   };
 
   return (
@@ -377,6 +459,7 @@ function CostCenter({ profiles, instances, setInstances }) {
           profiles={profiles}
           onEdit={openForm}
           onDelete={deleteInstance}
+          onQuickProvider={quickProvider}
         />
       ))}
 
@@ -462,7 +545,7 @@ function CostCenter({ profiles, instances, setInstances }) {
               </div>
               <div className="spec-cell">
                 <div className="spec-input-wrap">
-                  <input type="number" min={1} value={getBwDisplay(draft.bandwidth_mbps, bwUnit)}
+                  <input type="number" min={0} value={getBwDisplay(draft.bandwidth_mbps, bwUnit)}
                     onChange={(e) => setDraft({ ...draft, bandwidth_mbps: setBwMbps(e.target.value, bwUnit) })} />
                   <select value={bwUnit} onChange={(e) => setBwUnit(e.target.value)}>
                     <option value="Mbps">Mbps</option>
@@ -489,6 +572,29 @@ function CostCenter({ profiles, instances, setInstances }) {
                 </div>
                 <label>IPv4 数量</label>
               </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="text" value={draft.ipv4Address} placeholder="如 1.2.3.4"
+                    onChange={(e) => setDraft({ ...draft, ipv4Address: e.target.value })} />
+                </div>
+                <label>IPv4 地址</label>
+              </div>
+              <div className="spec-cell">
+                <div className="spec-input-wrap">
+                  <input type="number" min={0} max={16} value={draft.ipv6Count}
+                    onChange={(e) => setDraft({ ...draft, ipv6Count: +e.target.value })} />
+                </div>
+                <label>IPv6 数量</label>
+              </div>
+              {draft.ipv6Count > 0 && (
+                <div className="spec-cell">
+                  <div className="spec-input-wrap">
+                    <input type="text" value={draft.ipv6Address} placeholder="如 2001:db8::1"
+                      onChange={(e) => setDraft({ ...draft, ipv6Address: e.target.value })} />
+                  </div>
+                  <label>IPv6 地址</label>
+                </div>
+              )}
             </div>
           </FormSection>
 
@@ -536,7 +642,7 @@ function CostCenter({ profiles, instances, setInstances }) {
                     }}>{'\ud83d\udd04'} 自动</button>
                     <button className={`renewal-mode-btn ${draft.manualRenewal ? 'active' : ''}`} onClick={() => {
                       setDraft({ ...draft, manualRenewal: true });
-                    }}>{'\u270f\ufe0f'} 手动</button>
+                    }}>{'✏️'} 手动</button>
                   </div>
                 </div>
                 <input type="date" className={!draft.manualRenewal ? 'date-input-readonly' : ''}

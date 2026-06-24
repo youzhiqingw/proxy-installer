@@ -277,9 +277,12 @@ export function emptyDraft() {
     cpu: 2,
     memory_gb: 2,
     disk_gb: 30,
-    bandwidth_mbps: 20,
-    traffic_gb: 1000,
+    bandwidth_mbps: 0,
+    traffic_gb: 0,
     ipv4Count: 1,
+    ipv4Address: '',
+    ipv6Count: 0,
+    ipv6Address: '',
     price: 0,
     currency: 'CNY',
     billingCycle: 'monthly',
@@ -384,9 +387,19 @@ export function autoFillFromReport(draft, profile, presets) {
   if (r.resources?.cpuModel) {
     next.cpuModel = r.resources.cpuModel;
   }
-  // Public IP → host
+  // Public IPv4 → always sync host; fill address/count only when draft is empty
   if (r.network?.publicIpv4) {
     next.host = r.network.publicIpv4;
+    if (!draft.ipv4Address) {
+      next.ipv4Address = r.network.publicIpv4;
+      next.ipv4Count = Math.max(1, draft.ipv4Count || 1);
+    }
+  }
+  // IPv6 → fill only when draft has no IPv6 data; never clear user-entered values
+  const ipv6Addr = r.network?.publicIpv6 || r.network?.ipv6Global || '';
+  if (ipv6Addr && !draft.ipv6Address && !draft.ipv6Count) {
+    next.ipv6Address = ipv6Addr;
+    next.ipv6Count = 1;
   }
   // VPS name default
   if (!draft.vpsName) {

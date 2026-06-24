@@ -100,6 +100,13 @@ function App() {
         if (!alive) return;
         if (Array.isArray(saved?.profiles)) {
           setProfiles(saved.profiles);
+          // Restore cached IP quality result from active profile
+          const activeId = saved.deployConfig?.profileId;
+          const qp = saved.profiles.find(p => p.id === activeId && p.quality_result)
+            || saved.profiles.find(p => p.quality_result);
+          if (qp?.quality_result) {
+            setSpeed((current) => ({ ...current, quality: qp.quality_result }));
+          }
         }
         if (saved?.deployConfig && Object.keys(saved.deployConfig).length) {
           setDeployConfig((current) => ({
@@ -140,6 +147,12 @@ function App() {
       if (r?.instances) setCostInstances(r.instances);
     }).catch(() => {});
   }, [stateLoaded]);
+
+  // Clear or restore quality result when active profile changes
+  useEffect(() => {
+    const qp = profiles.find(p => p.id === deployConfig.profileId && p.quality_result);
+    setSpeed((current) => ({ ...current, quality: qp?.quality_result || null }));
+  }, [deployConfig.profileId, profiles]);
 
   useEffect(() => {
     if (!window.runtime?.EventsOnMultiple) {
@@ -335,6 +348,7 @@ function App() {
     try {
       const result = await callSSH(RunIPQuality, profile);
       setSpeed((current) => ({ ...current, qualityRunning: false, quality: result, error: '', notice: '' }));
+      setProfiles((current) => patchProfile(current, profile.id, { quality_result: result }));
     } catch (error) {
       setSpeed((current) => ({ ...current, qualityRunning: false, error: String(error) }));
     }

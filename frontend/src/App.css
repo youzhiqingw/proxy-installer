@@ -855,6 +855,27 @@ h3 { font-size: 15px; }
   font-size: 12px;
   white-space: nowrap;
 }
+.server-row em.status-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+.server-row em.status-busy svg {
+  animation: spin .9s linear infinite;
+}
+.server-dot.busy {
+  background: var(--accent);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(.7); }
+}
+.row-actions button:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
 
 .row-actions {
   display: flex;

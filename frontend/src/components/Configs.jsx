@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, Pencil, Plus, Search, Server, Trash2, Upload, Wifi, X } from 'lucide-react';
+import { Activity, Loader2, Pencil, Plus, Search, Server, Trash2, Upload, Wifi, X } from 'lucide-react';
 import { PanelTitle, Field, Detail } from './ui/UIComponents';
 import { toolSummary } from '../utils/format';
 
@@ -86,22 +86,28 @@ function Configs({ profiles, draft, setDraft, editingId, addProfile, startEditPr
         <PanelTitle icon={Server} title="VPS 列表" />
         <div className="server-list">
           {profiles.length === 0 && <div className="empty-state">暂无 VPS</div>}
-          {profiles.map((item) => (
+          {profiles.map((item) => {
+            const busy = item.status === '连接中' || item.status === '体检中';
+            return (
             <button className={`server-row ${selected?.id === item.id ? 'selected' : ''} ${editingId === item.id ? 'editing' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}>
-              <span className="server-dot" />
+              <span className={`server-dot ${busy ? 'busy' : ''}`} />
               <div className="server-main">
                 <strong>{item.name || item.host}</strong>
                 <span>{item.user}@{item.host}:{item.port}</span>
               </div>
-              <em>{item.status}</em>
+              <em className={busy ? 'status-busy' : ''}>
+                {busy && <Loader2 size={12} />}
+                {item.status}
+              </em>
               <div className="row-actions">
                 <button onClick={(event) => { event.stopPropagation(); startEditProfile(item); }} title="编辑"><Pencil size={15} /></button>
-                <button onClick={(event) => { event.stopPropagation(); testProfile(item); }} title="连接"><Wifi size={15} /></button>
-                <button onClick={(event) => { event.stopPropagation(); inspectProfile(item); }} title="体检"><Search size={15} /></button>
+                <button onClick={(event) => { event.stopPropagation(); testProfile(item); }} title="连接" disabled={busy}><Wifi size={15} /></button>
+                <button onClick={(event) => { event.stopPropagation(); inspectProfile(item); }} title="体检" disabled={busy}><Search size={15} /></button>
                 <button onClick={(event) => { event.stopPropagation(); deleteProfile(item.id); }} title="删除"><Trash2 size={15} /></button>
               </div>
             </button>
-          ))}
+            );
+          })}
         </div>
       </section>
 

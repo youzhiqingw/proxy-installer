@@ -41,6 +41,8 @@ export namespace config {
 	    private_key_content?: string;
 	    key_passphrase_enc?: string;
 	    password_encrypted?: string;
+	    report?: Record<string, any>;
+	    quality_result?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SSHProfile(source);
@@ -58,6 +60,8 @@ export namespace config {
 	        this.private_key_content = source["private_key_content"];
 	        this.key_passphrase_enc = source["key_passphrase_enc"];
 	        this.password_encrypted = source["password_encrypted"];
+	        this.report = source["report"];
+	        this.quality_result = source["quality_result"];
 	    }
 	}
 	export class AppState {
@@ -114,6 +118,9 @@ export namespace cost {
 	    bandwidth_mbps: number;
 	    traffic_gb: number;
 	    ipv4Count: number;
+	    ipv4Address?: string;
+	    ipv6Count: number;
+	    ipv6Address?: string;
 	    price: number;
 	    currency: string;
 	    billingCycle: string;
@@ -143,6 +150,9 @@ export namespace cost {
 	        this.bandwidth_mbps = source["bandwidth_mbps"];
 	        this.traffic_gb = source["traffic_gb"];
 	        this.ipv4Count = source["ipv4Count"];
+	        this.ipv4Address = source["ipv4Address"];
+	        this.ipv6Count = source["ipv6Count"];
+	        this.ipv6Address = source["ipv6Address"];
 	        this.price = source["price"];
 	        this.currency = source["currency"];
 	        this.billingCycle = source["billingCycle"];

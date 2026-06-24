@@ -19,10 +19,13 @@ type VPSInstance struct {
 	Host          string  `json:"host,omitempty"`
 	CPU           int     `json:"cpu"`
 	MemoryGB      float64 `json:"memory_gb"`
-	DiskGB        int     `json:"disk_gb"`
+	DiskGB        float64 `json:"disk_gb"`
 	BandwidthMbps int     `json:"bandwidth_mbps"`
 	TrafficGB     int     `json:"traffic_gb"`
 	IPv4Count     int     `json:"ipv4Count"`
+	IPv4Address   string  `json:"ipv4Address,omitempty"`
+	IPv6Count     int     `json:"ipv6Count"`
+	IPv6Address   string  `json:"ipv6Address,omitempty"`
 	Price         float64 `json:"price"`
 	Currency      string  `json:"currency"`
 	BillingCycle  string  `json:"billingCycle"`

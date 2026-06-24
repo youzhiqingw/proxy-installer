@@ -46,24 +46,28 @@ type SSHProfile struct {
 	PrivateKeyContent string `json:"private_key_content,omitempty"`  // 私钥 PEM 文本（持久化）
 	KeyPassphrase     []byte `json:"-"`                              // 密钥口令（内存，zero-out）
 	KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`   // vault 加密口令
-	Password          []byte `json:"-"`                              // 内存安全：[]byte 可 zero out
-	PasswordEncrypted string `json:"password_encrypted,omitempty"`   // 加密存储字段
+	Password          []byte         `json:"-"`                              // 内存安全：[]byte 可 zero out
+	PasswordEncrypted string         `json:"password_encrypted,omitempty"`   // 加密存储字段
+	Report            map[string]any `json:"report,omitempty"`               // 体检报告持久化
+	QualityResult     map[string]any `json:"quality_result,omitempty"`       // IP 质量检测缓存
 }
 
 // MarshalJSON 自定义序列化，确保 Password/KeyPassphrase 不直接暴露
 func (p SSHProfile) MarshalJSON() ([]byte, error) {
 	type Alias struct {
-		ID                string `json:"id"`
-		Name              string `json:"name"`
-		Host              string `json:"host"`
-		User              string `json:"user"`
-		Username          string `json:"username"`
-		Port              int    `json:"port"`
-		AuthMode          string `json:"auth_mode,omitempty"`
-		PrivateKeyContent string `json:"private_key_content,omitempty"`
-		KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`
-		Password          string `json:"password"`
-		PasswordEncrypted string `json:"password_encrypted,omitempty"`
+		ID                string         `json:"id"`
+		Name              string         `json:"name"`
+		Host              string         `json:"host"`
+		User              string         `json:"user"`
+		Username          string         `json:"username"`
+		Port              int            `json:"port"`
+		AuthMode          string         `json:"auth_mode,omitempty"`
+		PrivateKeyContent string         `json:"private_key_content,omitempty"`
+		KeyPassphraseEnc  string         `json:"key_passphrase_enc,omitempty"`
+		Password          string         `json:"password"`
+		PasswordEncrypted string         `json:"password_encrypted,omitempty"`
+		Report            map[string]any `json:"report,omitempty"`
+		QualityResult     map[string]any `json:"quality_result,omitempty"`
 	}
 	return json.Marshal(Alias{
 		ID:                p.ID,
@@ -77,23 +81,27 @@ func (p SSHProfile) MarshalJSON() ([]byte, error) {
 		KeyPassphraseEnc:  p.KeyPassphraseEnc,
 		Password:          string(p.Password),
 		PasswordEncrypted: p.PasswordEncrypted,
+		Report:            p.Report,
+		QualityResult:     p.QualityResult,
 	})
 }
 
 // UnmarshalJSON 自定义反序列化，兼容旧版 string 格式 Password
 func (p *SSHProfile) UnmarshalJSON(data []byte) error {
 	type Alias struct {
-		ID                string `json:"id"`
-		Name              string `json:"name"`
-		Host              string `json:"host"`
-		User              string `json:"user"`
-		Username          string `json:"username"`
-		Port              int    `json:"port"`
-		AuthMode          string `json:"auth_mode,omitempty"`
-		PrivateKeyContent string `json:"private_key_content,omitempty"`
-		KeyPassphraseEnc  string `json:"key_passphrase_enc,omitempty"`
-		Password          string `json:"password"`
-		PasswordEncrypted string `json:"password_encrypted,omitempty"`
+		ID                string         `json:"id"`
+		Name              string         `json:"name"`
+		Host              string         `json:"host"`
+		User              string         `json:"user"`
+		Username          string         `json:"username"`
+		Port              int            `json:"port"`
+		AuthMode          string         `json:"auth_mode,omitempty"`
+		PrivateKeyContent string         `json:"private_key_content,omitempty"`
+		KeyPassphraseEnc  string         `json:"key_passphrase_enc,omitempty"`
+		Password          string         `json:"password"`
+		PasswordEncrypted string         `json:"password_encrypted,omitempty"`
+		Report            map[string]any `json:"report,omitempty"`
+		QualityResult     map[string]any `json:"quality_result,omitempty"`
 	}
 	var a Alias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -110,6 +118,8 @@ func (p *SSHProfile) UnmarshalJSON(data []byte) error {
 	p.KeyPassphraseEnc = a.KeyPassphraseEnc
 	p.Password = []byte(a.Password)
 	p.PasswordEncrypted = a.PasswordEncrypted
+	p.Report = a.Report
+	p.QualityResult = a.QualityResult
 	return nil
 }
 
