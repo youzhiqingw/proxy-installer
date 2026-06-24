@@ -33,6 +33,7 @@ type VPSInstance struct {
 	ProviderURL   string  `json:"providerURL,omitempty"`
 	PlanName      string  `json:"planName,omitempty"`
 	OS            string  `json:"os,omitempty"`
+	CpuModel      string  `json:"cpuModel,omitempty"`
 	ProfileID     string  `json:"profileId,omitempty"`
 	Notes         string  `json:"notes,omitempty"`
 }

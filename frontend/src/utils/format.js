@@ -280,7 +280,7 @@ export function emptyDraft() {
     bandwidth_mbps: 20,
     traffic_gb: 1000,
     ipv4Count: 1,
-    price: '',
+    price: 0,
     currency: 'CNY',
     billingCycle: 'monthly',
     purchaseDate: new Date().toISOString().slice(0, 10),
@@ -290,6 +290,7 @@ export function emptyDraft() {
     providerURL: '',
     planName: '',
     os: '',
+    cpuModel: '',
     profileId: '',
     notes: '',
   };
@@ -378,6 +379,10 @@ export function autoFillFromReport(draft, profile, presets) {
   if (r.os?.prettyName) {
     const matched = matchOSPreset(r.os.prettyName, presets);
     if (matched) next.os = matched;
+  }
+  // CPU model name
+  if (r.resources?.cpuModel) {
+    next.cpuModel = r.resources.cpuModel;
   }
   // Public IP → host
   if (r.network?.publicIpv4) {

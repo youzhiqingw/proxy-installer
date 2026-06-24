@@ -245,6 +245,7 @@ function CostCenter({ profiles, instances, setInstances }) {
   const [editingId, setEditingId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showProviderSection, setShowProviderSection] = useState(false);
+  const [formError, setFormError] = useState('');
   const [memUnit, setMemUnit] = useState('GB');
   const [diskUnit, setDiskUnit] = useState('GB');
   const [bwUnit, setBwUnit] = useState('Mbps');
@@ -281,7 +282,7 @@ function CostCenter({ profiles, instances, setInstances }) {
 
   const openForm = (inst) => {
     if (inst) {
-      setDraft({ ...emptyDraft(), ...inst, price: String(inst.price) });
+      setDraft({ ...emptyDraft(), ...inst, price: Number(inst.price) || 0 });
       setEditingId(inst.id);
       setMemUnit(Number(inst.memory_gb) > 0 && Number(inst.memory_gb) < 1 ? 'MB' : 'GB');
       setDiskUnit(Number(inst.disk_gb) > 500 ? 'TB' : 'GB');
@@ -292,6 +293,7 @@ function CostCenter({ profiles, instances, setInstances }) {
       setEditingId('');
       setMemUnit('GB'); setDiskUnit('GB'); setBwUnit('Mbps'); setTrafficUnit('GB');
     }
+    setFormError('');
     setShowForm(true);
     setShowProviderSection(false);
   };
@@ -318,8 +320,13 @@ function CostCenter({ profiles, instances, setInstances }) {
         });
         setShowForm(false);
         setEditingId('');
+        setFormError('');
+      } else {
+        setFormError(r?.error || '保存失败：未知错误');
       }
-    } catch (e) { console.warn(e); }
+    } catch (e) {
+      setFormError(String(e));
+    }
   };
 
   const deleteInstance = async (id) => {
@@ -398,6 +405,14 @@ function CostCenter({ profiles, instances, setInstances }) {
       {showForm && (
         <div className="instance-form">
           <h3 style={{ fontSize: 16, margin: '0 0 4px' }}>{editingId ? '编辑 VPS' : '添加 VPS'}</h3>
+          {formError && (
+            <div style={{
+              background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8,
+              color: '#dc2626', fontSize: 13, padding: '8px 12px', margin: '8px 0',
+            }}>
+              {formError}
+            </div>
+          )}
 
           <FormSection title="基本信息">
             <Field label="VPS 名称" required>

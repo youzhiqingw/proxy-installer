@@ -124,6 +124,7 @@ export namespace cost {
 	    providerURL?: string;
 	    planName?: string;
 	    os?: string;
+	    cpuModel?: string;
 	    profileId?: string;
 	    notes?: string;
 	
@@ -152,6 +153,7 @@ export namespace cost {
 	        this.providerURL = source["providerURL"];
 	        this.planName = source["planName"];
 	        this.os = source["os"];
+	        this.cpuModel = source["cpuModel"];
 	        this.profileId = source["profileId"];
 	        this.notes = source["notes"];
 	    }
