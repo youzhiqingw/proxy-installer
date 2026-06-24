@@ -1,21 +1,77 @@
-MIT License
+Business Source License 1.1
 
 Copyright (c) 2026 Proxy Installer contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+License text available at:
+https://mariadb.com/bsl11/
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+BUSL License Text
+=================
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The Business Source License (BSPL) is a license that allows source code to be publicly available while restricting commercial use. The text below is derived from the BUSL 1.1 template.
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+   "License" shall mean the terms and conditions for use, reproduction,
+   and distribution as defined in this document.
+
+   "Licensor" shall mean Proxy Installer contributors.
+
+   "Licensed Software" shall mean the software made available under this
+   License, including any associated documentation, data, and materials.
+
+   "Additional Use Grant" means the rights granted under Section 2.
+
+   "Change Date" shall mean the date that is four (4) years from the date
+   of initial publication of this License.
+
+   "Change License" shall mean the GNU General Public License, version 2.0,
+   or any later version, as published by the Free Software Foundation.
+
+2. License Grant. Subject to the terms of this Business Source License
+   (the "License"), Licensor hereby grants you a worldwide, royalty-free,
+   non-exclusive license, for a period of four (4) years (the "Initial
+   Term"), to use, reproduce, modify, and distribute the Licensed Software
+   for non-commercial purposes, including internal use, evaluation,
+   testing, and development, provided that you do not use the Licensed
+   Software or any derivative works for Commercial Production.
+
+   "Commercial Production" means using the Licensed Software or any
+   derivative work to provide a product or service to third parties for
+   the purpose of generating revenue or other commercial benefit.
+
+3. Commercial Use. Upon the Change Date, this License will automatically
+   convert to the Change License. Prior to the Change Date, any entity
+   wishing to use the Licensed Software for Commercial Production must
+   obtain a commercial license from Licensor by contacting the Licensor.
+
+4. Distribution. You may distribute the Licensed Software provided that
+   you include a copy of this License with every copy of the Licensed
+   Software you distribute, and you prominently display the License file
+   in any distribution of the Licensed Software.
+
+5. Disclaimer of Warranty. THE LICENSED SOFTWARE IS PROVIDED "AS IS",
+   WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+   LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+   AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+6. Limitation of Liability. IN NO EVENT SHALL LICENSOR BE LIABLE TO YOU
+   FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
+   DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, LOSS OF DATA,
+   OR OTHER INTANGIBLE LOSSES, ARISING FROM YOUR USE OF THE LICENSED
+   SOFTWARE.
+
+7. Termination. This License shall terminate automatically if you fail to
+   comply with any of the terms and conditions of this License.
+
+8. Governing Law. This License shall be governed by and construed in
+   accordance with the laws of the jurisdiction in which Licensor resides,
+   without regard to conflict of law principles.
+
+For commercial licensing inquiries, please contact the project maintainers.

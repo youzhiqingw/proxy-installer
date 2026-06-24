@@ -58,6 +58,7 @@
 .instance-price { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--text2); }
 .instance-price strong { color: var(--text1); font-weight: 600; }
 .instance-notes { margin-top: 4px; padding: 8px; background: var(--bg2); border-radius: 6px; font-size: 12px; color: var(--text2); white-space: pre-wrap; line-height: 1.5; border-left: 2px solid var(--amber); }
+.instance-linked-profile { margin-top: 4px; padding: 6px 8px; background: var(--bg2); border-radius: 6px; font-size: 12px; color: var(--text2); line-height: 1.5; border-left: 2px solid var(--accent); }
 
 /* Add button */
 .add-instance-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--text2); cursor: pointer; font-size: 13px; }
@@ -750,6 +751,49 @@ h3 { font-size: 15px; }
   width: 100%;
 }
 
+.auth-mode-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+.auth-mode-toggle button {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.auth-mode-toggle button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.server-row.editing {
+  border-left: 3px solid var(--accent);
+}
+
+.key-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.key-input-group textarea {
+  width: 100%;
+}
+.key-upload-btn {
+  align-self: flex-end;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+}
+
 .server-list,
 .subs,
 .detail-list {
@@ -810,6 +854,27 @@ h3 { font-size: 15px; }
   font-style: normal;
   font-size: 12px;
   white-space: nowrap;
+}
+.server-row em.status-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+}
+.server-row em.status-busy svg {
+  animation: spin .9s linear infinite;
+}
+.server-dot.busy {
+  background: var(--accent);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .4; transform: scale(.7); }
+}
+.row-actions button:disabled {
+  opacity: .35;
+  cursor: not-allowed;
 }
 
 .row-actions {

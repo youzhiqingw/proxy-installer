@@ -13,6 +13,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+
+	"proxy-installer/internal/logger"
 )
 
 //go:embed all:frontend/dist
@@ -43,6 +45,8 @@ func main() {
 		OnStartup:        app.startup,
 		OnBeforeClose:    app.beforeClose,
 		OnShutdown: func(ctx context.Context) {
+			logger.Info("应用关闭")
+			logger.Close()
 			systray.Quit()
 		},
 		HideWindowOnClose: true,

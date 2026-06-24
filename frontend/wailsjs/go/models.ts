@@ -1,4 +1,4 @@
-export namespace main {
+export namespace config {
 	
 	export class DeployConfig {
 	    profileId: string;
@@ -37,8 +37,12 @@ export namespace main {
 	    user: string;
 	    username: string;
 	    port: number;
-	    password: string;
+	    auth_mode?: string;
+	    private_key_content?: string;
+	    key_passphrase_enc?: string;
 	    password_encrypted?: string;
+	    report?: Record<string, any>;
+	    quality_result?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SSHProfile(source);
@@ -52,8 +56,12 @@ export namespace main {
 	        this.user = source["user"];
 	        this.username = source["username"];
 	        this.port = source["port"];
-	        this.password = source["password"];
+	        this.auth_mode = source["auth_mode"];
+	        this.private_key_content = source["private_key_content"];
+	        this.key_passphrase_enc = source["key_passphrase_enc"];
 	        this.password_encrypted = source["password_encrypted"];
+	        this.report = source["report"];
+	        this.quality_result = source["quality_result"];
 	    }
 	}
 	export class AppState {
@@ -95,6 +103,10 @@ export namespace main {
 		}
 	}
 	
+
+}
+
+export namespace cost {
 	
 	export class VPSInstance {
 	    id: string;
@@ -106,6 +118,9 @@ export namespace main {
 	    bandwidth_mbps: number;
 	    traffic_gb: number;
 	    ipv4Count: number;
+	    ipv4Address?: string;
+	    ipv6Count: number;
+	    ipv6Address?: string;
 	    price: number;
 	    currency: string;
 	    billingCycle: string;
@@ -116,6 +131,7 @@ export namespace main {
 	    providerURL?: string;
 	    planName?: string;
 	    os?: string;
+	    cpuModel?: string;
 	    profileId?: string;
 	    notes?: string;
 	
@@ -134,6 +150,9 @@ export namespace main {
 	        this.bandwidth_mbps = source["bandwidth_mbps"];
 	        this.traffic_gb = source["traffic_gb"];
 	        this.ipv4Count = source["ipv4Count"];
+	        this.ipv4Address = source["ipv4Address"];
+	        this.ipv6Count = source["ipv6Count"];
+	        this.ipv6Address = source["ipv6Address"];
 	        this.price = source["price"];
 	        this.currency = source["currency"];
 	        this.billingCycle = source["billingCycle"];
@@ -144,6 +163,7 @@ export namespace main {
 	        this.providerURL = source["providerURL"];
 	        this.planName = source["planName"];
 	        this.os = source["os"];
+	        this.cpuModel = source["cpuModel"];
 	        this.profileId = source["profileId"];
 	        this.notes = source["notes"];
 	    }

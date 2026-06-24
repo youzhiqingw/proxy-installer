@@ -1,0 +1,21 @@
+{
+  "appName": "Proxy Installer",
+  "bind": [
+    {
+      "source": "./src",
+      "target": "./src"
+    }
+  ],
+  "build": {
+    "buildDir": "../build",
+    "outDir": "../build/bin"
+  },
+  "frontend": {
+    "dev": {
+      "cmd": "vite"
+    },
+    "build": {
+      "cmd": "vite build"
+    }
+  }
+}
