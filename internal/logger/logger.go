@@ -36,7 +36,7 @@ func Init(dir string) error {
 	if err := openTodayFile(); err != nil {
 		return err
 	}
-	cleanOldLogs()
+	go cleanOldLogs()
 	return nil
 }
 

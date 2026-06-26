@@ -175,7 +175,8 @@ func SafeDomain(s, fallback string) string {
 	return out
 }
 
-func stableUUID(seed string) string {
+// StableUUID generates a random UUID v4 string (seed parameter kept for API compatibility but unused)
+func StableUUID(seed string) string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "00000000-0000-4000-8000-000000000000"

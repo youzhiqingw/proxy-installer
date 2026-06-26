@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import appIcon from './assets/images/app-icon.png';
 import {
   DollarSign,
@@ -56,6 +56,8 @@ function App() {
   const [costInstances, setCostInstances] = useState([]);
   const [progress, setProgress] = useState({ value: 0, status: 'idle', message: '等待操作', logs: [] });
   const [profiles, setProfiles] = useState([]);
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
   const [draft, setDraft] = useState({ name: '', host: '', user: 'root', port: 22, password: '', authMode: '', privateKeyContent: '', keyPassphrase: '' });
   const [editingId, setEditingId] = useState(null);
   const [speed, setSpeed] = useState({ running: false, qualityRunning: false, items: [], remote: null, node: null, quality: null, error: '', notice: '' });
@@ -190,23 +192,24 @@ function App() {
   };
 
   const startEditProfile = async (item) => {
-    let creds = { password: '', keyPassphrase: '', authMode: item.authMode || '' };
+    let authMode = item.authMode || '';
+    let hasPassword = false;
+    let hasKeyPassphrase = false;
     try {
       const result = await callBackend(GetProfileCredentials, item.id);
       if (result) {
-        creds = {
-          ...creds,
-          password: result.password || '',
-          keyPassphrase: result.keyPassphrase || '',
-        };
+        authMode = result.authMode || authMode;
+        hasPassword = Boolean(result.hasPassword);
+        hasKeyPassphrase = Boolean(result.hasKeyPassphrase);
       }
     } catch (err) {
       console.warn('凭据加载失败:', err);
     }
     setDraft({
       name: item.name || '', host: item.host || '', user: item.user || 'root', port: item.port || 22,
-      password: creds.password, authMode: creds.authMode,
-      privateKeyContent: item.privateKeyContent || '', keyPassphrase: creds.keyPassphrase,
+      password: '', authMode,
+      privateKeyContent: item.privateKeyContent || '', keyPassphrase: '',
+      _hasPassword: hasPassword, _hasKeyPassphrase: hasKeyPassphrase,
     });
     setEditingId(item.id);
   };
@@ -232,7 +235,14 @@ function App() {
             keyType: match?.[4] || '',
             onRetry: async () => {
               try {
-                resolve(await callBackend(fn, ...args));
+                // Refresh profile args from latest state to avoid stale closure
+                const freshArgs = args.map((arg) => {
+                  if (arg && typeof arg === 'object' && arg.id) {
+                    return profilesRef.current.find((p) => p.id === arg.id) || arg;
+                  }
+                  return arg;
+                });
+                resolve(await callBackend(fn, ...freshArgs));
               } catch (e) {
                 reject(e);
               }

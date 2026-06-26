@@ -52,7 +52,7 @@ function Configs({ profiles, draft, setDraft, editingId, addProfile, startEditPr
         </Field>
 
         {draft.authMode !== 'key' ? (
-          <Field label="密码"><input type="password" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></Field>
+          <Field label="密码"><input type="password" value={draft.password} placeholder={draft._hasPassword ? '已保存（留空保持不变）' : ''} onChange={(e) => setDraft({ ...draft, password: e.target.value })} /></Field>
         ) : (
           <>
             <Field label="私钥内容">
@@ -66,7 +66,7 @@ function Configs({ profiles, draft, setDraft, editingId, addProfile, startEditPr
                 </button>
               </div>
             </Field>
-            <Field label="密钥口令（可选）"><input type="password" value={draft.keyPassphrase || ''} onChange={(e) => setDraft({ ...draft, keyPassphrase: e.target.value })} /></Field>
+            <Field label="密钥口令（可选）"><input type="password" value={draft.keyPassphrase || ''} placeholder={draft._hasKeyPassphrase ? '已保存（留空保持不变）' : ''} onChange={(e) => setDraft({ ...draft, keyPassphrase: e.target.value })} /></Field>
           </>
         )}
         <div className="form-actions">

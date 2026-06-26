@@ -373,7 +373,7 @@ func BuildDeployScript(profile config.SSHProfile, cfg config.DeployConfig) (stri
 	token := SafeToken(cfg.Token)
 	sni := SafeDomain(cfg.SNI, config.DefaultSNI)
 	password := config.PasswordPrefix + token + config.PasswordSuffix
-	uuid := stableUUID(token)
+	uuid := StableUUID(token)
 	realityPrivate, realityPublic, realityShortID := RealityKeys(token)
 	webPort := cfg.WebPort
 	if webPort == 0 {

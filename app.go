@@ -121,8 +121,8 @@ func ensureProxyDirs() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, key := range []string{"data", "profiles", "reports", "logs", "cache", "runtime", "webview"} {
-		if err := os.MkdirAll(dirs[key], 0700); err != nil {
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, err
 		}
 	}
@@ -200,33 +200,9 @@ func (a *App) LoadAppState() (map[string]any, error) {
 		return nil, fmt.Errorf("读取本地配置失败: %w", err)
 	}
 
-	// Decrypt passwords and auto-migrate plaintext ones
-	// Also decrypt key passphrases for key-mode profiles
-	if a.vault != nil {
-		for i := range state.Profiles {
-			p := &state.Profiles[i]
-			if p.PasswordEncrypted != "" {
-				dec, err := a.vault.Decrypt(p.PasswordEncrypted)
-				if err == nil {
-					p.Password = []byte(dec)
-				} else {
-					logger.Warn("密码解密失败", "profile", p.Name, "error", err.Error())
-					p.Password = []byte(p.PasswordEncrypted)
-				}
-			}
-			if p.KeyPassphraseEnc != "" {
-				dec, err := a.vault.Decrypt(p.KeyPassphraseEnc)
-				if err == nil {
-					p.KeyPassphrase = []byte(dec)
-				} else {
-					logger.Warn("密钥口令解密失败", "profile", p.Name, "error", err.Error())
-				}
-			}
-		}
-	}
-
-	// T-08: 清除内存中的明文凭据，防止通过前端返回泄露
-	// 密码和密钥口令仅在 SSH 操作时按需解密使用
+	// 凭据惰性解密：启动时不解密所有 profile 的密码/口令（避免 PBKDF2 × N 开销）
+	// 仅在 GetProfileCredentials 按需解密，SSH 操作时使用
+	// ClearAllSecrets 确保残留的明文被清除
 	for i := range state.Profiles {
 		state.Profiles[i].ClearAllSecrets()
 	}
@@ -243,12 +219,10 @@ func (a *App) LoadAppState() (map[string]any, error) {
 	}, nil
 }
 
-// GetProfileCredentials 按需解密指定 profile 的凭据，返回后立即清除内存中的明文
+// GetProfileCredentials 返回指定 profile 的认证模式和凭据存在标志（不解密明文）
+// 前端仅用 hasPassword/hasKeyPassphrase 判断是否需要用户重新输入
 func (a *App) GetProfileCredentials(profileID string) (map[string]any, error) {
-	empty := map[string]any{"password": "", "keyPassphrase": "", "authMode": ""}
-	if a.vault == nil {
-		return empty, nil
-	}
+	empty := map[string]any{"hasPassword": false, "hasKeyPassphrase": false, "authMode": ""}
 	path, err := appStatePath()
 	if err != nil {
 		return nil, err
@@ -264,23 +238,11 @@ func (a *App) GetProfileCredentials(profileID string) (map[string]any, error) {
 	for i := range state.Profiles {
 		if state.Profiles[i].ID == profileID {
 			p := &state.Profiles[i]
-			result := map[string]any{
-				"password":      "",
-				"keyPassphrase": "",
-				"authMode":      p.AuthMode,
-			}
-			if p.PasswordEncrypted != "" {
-				if dec, err := a.vault.Decrypt(p.PasswordEncrypted); err == nil {
-					result["password"] = dec
-				}
-			}
-			if p.KeyPassphraseEnc != "" {
-				if dec, err := a.vault.Decrypt(p.KeyPassphraseEnc); err == nil {
-					result["keyPassphrase"] = dec
-				}
-			}
-			p.ClearAllSecrets()
-			return result, nil
+			return map[string]any{
+				"hasPassword":      p.PasswordEncrypted != "",
+				"hasKeyPassphrase": p.KeyPassphraseEnc != "",
+				"authMode":         p.AuthMode,
+			}, nil
 		}
 	}
 	return empty, nil
@@ -596,7 +558,20 @@ func (a *App) RunNodeSpeedTest(profile SSHProfile, config DeployConfig) (map[str
 }
 
 // connect 建立 SSH 连接（委托给 sshclient.Client）
+// 自动按需解密 PasswordEncrypted / KeyPassphraseEnc，前端无需持有明文凭据
 func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
+	if a.vault != nil {
+		if len(profile.Password) == 0 && profile.PasswordEncrypted != "" {
+			if dec, err := a.vault.Decrypt(profile.PasswordEncrypted); err == nil {
+				profile.Password = []byte(dec)
+			}
+		}
+		if len(profile.KeyPassphrase) == 0 && profile.KeyPassphraseEnc != "" {
+			if dec, err := a.vault.Decrypt(profile.KeyPassphraseEnc); err == nil {
+				profile.KeyPassphrase = []byte(dec)
+			}
+		}
+	}
 	return a.sshClient.Connect(profile)
 }
 

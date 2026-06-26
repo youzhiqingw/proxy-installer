@@ -60,8 +60,10 @@ func NewVault(autoKeyPath string) (*Vault, error) {
 	// 2. Try .autokey file and migrate to keyring
 	if key, err := LoadAutoKey(autoKeyPath); err == nil && len(key) == KeyLength {
 		v.autoKey = key
-		// Best-effort migration to OS keyring
-		_ = MigrateAutoKeyToKeyring(autoKeyPath)
+		// Best-effort migration to OS keyring (keyring already confirmed empty in step 1)
+		if err := saveKeyToKeyring(key); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: Failed to migrate autokey to OS keyring: %v\n", err)
+		}
 		return v, nil
 	}
 
@@ -128,11 +130,13 @@ func (v *Vault) Encrypt(data string) (string, error) {
 
 	// Encode to base64
 	saltForStorage := v.autoKey[:SaltLength]
+	version := ""
 	if salt != nil {
 		saltForStorage = salt
+		version = vaultVersionV2
 	}
 	result := VaultData{
-		Version:    vaultVersionV2,
+		Version:    version,
 		Salt:       base64.StdEncoding.EncodeToString(saltForStorage),
 		Nonce:      base64.StdEncoding.EncodeToString(nonce),
 		Ciphertext: base64.StdEncoding.EncodeToString(ciphertext),
@@ -160,9 +164,15 @@ func (v *Vault) Decrypt(data string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to decode salt: %w", err)
 	}
+	if len(salt) < SaltLength {
+		return "", fmt.Errorf("corrupted vault data: salt too short (%d bytes, need %d)", len(salt), SaltLength)
+	}
 	nonce, err := base64.StdEncoding.DecodeString(vd.Nonce)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode nonce: %w", err)
+	}
+	if len(nonce) < NonceLength {
+		return "", fmt.Errorf("corrupted vault data: nonce too short (%d bytes, need %d)", len(nonce), NonceLength)
 	}
 	ciphertext, err := base64.StdEncoding.DecodeString(vd.Ciphertext)
 	if err != nil {

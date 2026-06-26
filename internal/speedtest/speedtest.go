@@ -5,7 +5,6 @@ package speedtest
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -156,7 +155,7 @@ func RunNodeSpeedTest(sshClient *sshclient.Client, profile config.SSHProfile, cf
 	nodeName := deploy.SafeName(cfg.NodeName, config.DefaultNodeName)
 	token := deploy.SafeToken(cfg.Token)
 	password := config.PasswordPrefix + token + config.PasswordSuffix
-	uuid := stableUUID(token)
+	uuid := deploy.StableUUID(token)
 	_, realityPublic, realityShortID := deploy.RealityKeys(token)
 
 	var protocols []map[string]any
@@ -313,15 +312,6 @@ func floatFromAny(value any) float64 {
 	}
 }
 
-func stableUUID(seed string) string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	b[6] = (b[6] & 0x0F) | 0x40
-	b[8] = (b[8] & 0x3F) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
 
 func probeTCP(host string, port int, attempts int, timeout time.Duration) (int, string) {
 	if attempts <= 0 {

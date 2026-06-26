@@ -144,19 +144,6 @@ export function autoNextRenewal(purchaseDate, billingCycle) {
   return d.toISOString().split('T')[0];
 }
 
-export function calcFrontendRenewal(purchaseDate, billingCycle) {
-  if (billingCycle === 'lifetime') return '';
-  const months = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 }[billingCycle];
-  if (!months) return '';
-  const d = new Date(purchaseDate);
-  if (isNaN(d.getTime())) return '';
-  const now = new Date();
-  let next = new Date(d);
-  while (next <= now) {
-    next.setMonth(next.getMonth() + months);
-  }
-  return next.toISOString().slice(0, 10);
-}
 
 export function getInstanceStatus(inst) {
   if (inst.billingCycle === 'lifetime') return 'lifetime';
