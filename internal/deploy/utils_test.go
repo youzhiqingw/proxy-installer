@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -359,5 +360,36 @@ func TestNormalizeHostLiteral(t *testing.T) {
 				t.Errorf("NormalizeHostLiteral(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// StableUUID — determinism regression test
+// (regression: was previously random via crypto/rand, breaking re-deploy identity)
+// ---------------------------------------------------------------------------
+
+var uuidV4Regex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func TestStableUUID(t *testing.T) {
+	// 1. Determinism: same seed must always produce the same UUID.
+	if got1, got2 := StableUUID("abc"), StableUUID("abc"); got1 != got2 {
+		t.Errorf("StableUUID not deterministic: %q != %q", got1, got2)
+	}
+
+	// 2. Distinctness: different seeds must produce different UUIDs.
+	if StableUUID("alpha") == StableUUID("beta") {
+		t.Error("StableUUID collision for distinct seeds")
+	}
+
+	// 3. Format: must be a spec-valid UUID v4 (version + variant bits).
+	for _, seed := range []string{"abc", "", "some-long-token-123", "中文 token"} {
+		if got := StableUUID(seed); !uuidV4Regex.MatchString(got) {
+			t.Errorf("StableUUID(%q) = %q, not a valid UUID v4", seed, got)
+		}
+	}
+
+	// 4. Empty seed is stable and well-formed.
+	if StableUUID("") != StableUUID("") {
+		t.Error("StableUUID(\"\") is not deterministic")
 	}
 }

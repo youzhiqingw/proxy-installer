@@ -18,6 +18,7 @@ import (
 	"proxy-installer/internal/config"
 	"proxy-installer/internal/cost"
 	"proxy-installer/internal/deploy"
+	apperr "proxy-installer/internal/errors"
 	"proxy-installer/internal/logger"
 	"proxy-installer/internal/quality"
 	"proxy-installer/internal/ruleengine"
@@ -560,16 +561,25 @@ func (a *App) RunNodeSpeedTest(profile SSHProfile, config DeployConfig) (map[str
 // connect 建立 SSH 连接（委托给 sshclient.Client）
 // 自动按需解密 PasswordEncrypted / KeyPassphraseEnc，前端无需持有明文凭据
 func (a *App) connect(profile SSHProfile) (*ssh.Client, error) {
+	// defer 清除本栈帧中解密出的明文凭据（sshClient.Connect 按值接收并清理自己的副本）
+	defer profile.ClearAllSecrets()
 	if a.vault != nil {
 		if len(profile.Password) == 0 && profile.PasswordEncrypted != "" {
-			if dec, err := a.vault.Decrypt(profile.PasswordEncrypted); err == nil {
-				profile.Password = []byte(dec)
+			dec, err := a.vault.Decrypt(profile.PasswordEncrypted)
+			if err != nil {
+				// 区别于 SSH 认证失败：解密失败时尽早返回明确错误，避免误判为凭据错误
+				logger.Warn("密码解密失败", "profile", profile.Name, "error", err.Error())
+				return nil, apperr.NewSSH("凭据解密失败，请重新输入密码", err)
 			}
+			profile.Password = []byte(dec)
 		}
 		if len(profile.KeyPassphrase) == 0 && profile.KeyPassphraseEnc != "" {
-			if dec, err := a.vault.Decrypt(profile.KeyPassphraseEnc); err == nil {
-				profile.KeyPassphrase = []byte(dec)
+			dec, err := a.vault.Decrypt(profile.KeyPassphraseEnc)
+			if err != nil {
+				logger.Warn("密钥口令解密失败", "profile", profile.Name, "error", err.Error())
+				return nil, apperr.NewSSH("密钥口令解密失败，请重新输入", err)
 			}
+			profile.KeyPassphrase = []byte(dec)
 		}
 	}
 	return a.sshClient.Connect(profile)
